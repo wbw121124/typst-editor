@@ -121,6 +121,57 @@ export async function exportPdf() {
   return project.exportPdf();
 }
 
+export async function renderToCanvas(canvas, pageNum = 0) {
+  if (!project) return false;
+  try {
+    const result = await project.compile();
+    if (!result || !result.pages || result.pages.length === 0) return false;
+
+    const svgStr = await project.renderPage(pageNum);
+    if (!svgStr) return false;
+
+    const pageInfo = result.pages[pageNum];
+    const pageWidthPt = pageInfo?.width || 595;
+    const pageHeightPt = pageInfo?.height || 842;
+
+    const img = new Image();
+    const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+
+    return new Promise((resolve) => {
+      img.onload = () => {
+        const scale = canvas.clientWidth / pageWidthPt;
+        canvas.width = canvas.clientWidth;
+        canvas.height = pageHeightPt * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(true);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(false);
+      };
+      img.src = url;
+    });
+  } catch (e) {
+    console.warn('[TypstProject] renderToCanvas failed:', e);
+    return false;
+  }
+}
+
+export async function renderToSvg(pageNum = 0) {
+  if (!project) return undefined;
+  try {
+    await project.compile();
+    return await project.renderPage(pageNum);
+  } catch (e) {
+    console.warn('[TypstProject] renderToSvg failed:', e);
+    return undefined;
+  }
+}
+
 export function onCompile(listener) {
   if (!project) return () => {};
   return project.onCompile(listener);

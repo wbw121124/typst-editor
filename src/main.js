@@ -1,4 +1,3 @@
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import { registerTypstLanguage, registerTypstSnippets } from './typst-lang';
 import { initTextMateGrammar, registerTextMateLanguage } from './textmate';
 import { $typst, TypstSnippet } from '@myriaddreamin/typst.ts/dist/esm/contrib/snippet.mjs';
@@ -9,7 +8,26 @@ import { registerLspFeatures } from './lsp-adapter.js';
 
 window.MonacoEnvironment = {
   getWorker(_, label) {
-    return new editorWorker();
+    const getWorkerModule = (moduleUrl) => {
+      return new Worker(new URL(moduleUrl, import.meta.url), { type: 'module' });
+    };
+    switch (label) {
+      case 'json':
+        return getWorkerModule('monaco-editor/esm/vs/language/json/json.worker.js');
+      case 'css':
+      case 'scss':
+      case 'less':
+        return getWorkerModule('monaco-editor/esm/vs/language/css/css.worker.js');
+      case 'html':
+      case 'handlebars':
+      case 'razor':
+        return getWorkerModule('monaco-editor/esm/vs/language/html/html.worker.js');
+      case 'typescript':
+      case 'javascript':
+        return getWorkerModule('monaco-editor/esm/vs/language/typescript/ts.worker.js');
+      default:
+        return getWorkerModule('monaco-editor/esm/vs/editor/editor.worker.js');
+    }
   },
 };
 
@@ -216,20 +234,14 @@ async function initTypst() {
     const accessModel = new MemoryAccessModel();
     window.packageCache = new Map();
 
-    const provider = TypstSnippet.fetchPackageBy(accessModel, (spec, defaultHttpUrl) => {
-      // spec 结构: { namespace: "xxx", name: "yyy", version: "zzz" }
+    const provider = TypstSnippet.fetchPackageBy(accessModel, (spec) => {
       const url = `${base}@${spec.namespace}/${spec.name}-${spec.version}.tar.gz`;
-
-      // console.log(`[Custom Fetcher] Downloading: ${url}`, spec);
-
       try {
         const request = new XMLHttpRequest();
         request.overrideMimeType('text/plain; charset=x-user-defined');
         request.open('GET', url, false);
         request.send(null);
-        if (request.status === 200 &&
-          (request.response instanceof String || typeof request.response === 'string')
-        ) {
+        if (request.status === 200 && typeof request.response === 'string') {
           return Uint8Array.from(request.response, (c) => c.charCodeAt(0));
         }
         return undefined;
@@ -251,7 +263,6 @@ async function initTypst() {
         '/fonts/Roboto-Regular.ttf',
         '/fonts/JetBrainsMono-Regular.ttf',
       ]),
-      // provider,
       TypstSnippet.withAccessModel(accessModel),
       provider,
     );
@@ -314,7 +325,7 @@ async function initEditor(monaco) {
     }
 
     clearTimeout(compileTimer);
-    compileTimer = setTimeout(() => doRender(), 5000);
+    compileTimer = setTimeout(() => doRender(), 1000);
   });
 
   return editor;
@@ -361,8 +372,134 @@ function renderTree(container, items) {
       el.dataset.path = item.path;
       if (item.path === currentFile) el.classList.add('active');
       el.addEventListener('click', () => openFile(item.path));
+      el.addEventListener('contextmenu', (e) => showFileContextMenu(e, item));
       container.appendChild(el);
     }
+  }
+}
+
+function showFileContextMenu(e, item) {
+  e.preventDefault();
+  e.stopPropagation();
+  hideFileContextMenu();
+
+  const container = document.getElementById('file-context-menu');
+  container.innerHTML = '';
+  container.className = 'monaco-menu-container context-view monaco-editor';
+
+  const menu = document.createElement('div');
+  menu.className = 'monaco-menu';
+
+  const actionBar = document.createElement('div');
+  actionBar.className = 'monaco-action-bar vertical';
+
+  const actions = document.createElement('div');
+  actions.className = 'actions-container';
+
+  const items = [
+    { label: '打开', keybinding: 'Enter', id: 'file-open' },
+    { label: '重命名', keybinding: 'F2', id: 'file-rename' },
+    { label: '删除', keybinding: 'Del', id: 'file-delete' },
+  ];
+
+  items.forEach((mi) => {
+    const actionItem = document.createElement('div');
+    actionItem.className = 'action-item';
+
+    const menuAction = document.createElement('div');
+    menuAction.className = 'action-menu-item';
+
+    const label = document.createElement('span');
+    label.className = 'action-label';
+    label.textContent = mi.label;
+
+    const keybinding = document.createElement('span');
+    keybinding.className = 'keybinding';
+    keybinding.textContent = mi.keybinding;
+
+    menuAction.appendChild(label);
+    menuAction.appendChild(keybinding);
+
+    menuAction.addEventListener('click', () => {
+      hideFileContextMenu();
+      if (mi.id === 'file-open') openFile(item.path);
+      else if (mi.id === 'file-rename') renameFile(item.path);
+      else if (mi.id === 'file-delete') deleteFile(item.path);
+    });
+
+    menuAction.addEventListener('mouseenter', () => actionItem.classList.add('active'));
+    menuAction.addEventListener('mouseleave', () => actionItem.classList.remove('active'));
+
+    actionItem.appendChild(menuAction);
+    actions.appendChild(actionItem);
+  });
+
+  actionBar.appendChild(actions);
+  menu.appendChild(actionBar);
+  container.appendChild(menu);
+
+  document.body.appendChild(container);
+
+  const x = Math.min(e.clientX, window.innerWidth - 180);
+  const y = Math.min(e.clientY, window.innerHeight - 100);
+  container.style.left = x + 'px';
+  container.style.top = y + 'px';
+  container.classList.add('visible');
+
+  setTimeout(() => {
+    document.addEventListener('click', hideFileContextMenu, { once: true });
+    document.addEventListener('contextmenu', hideFileContextMenu, { once: true });
+    document.addEventListener('focusout', hideFileContextMenu, { once: true })
+  }, 0);
+}
+
+function hideFileContextMenu() {
+  const container = document.getElementById('file-context-menu');
+  if (container) {
+    container.classList.remove('visible');
+    container.innerHTML = '';
+  }
+}
+
+async function renameFile(oldPath) {
+  const newName = prompt('新文件名:', oldPath.split('/').pop());
+  if (!newName || newName === oldPath.split('/').pop()) return;
+  const dir = oldPath.includes('/') ? oldPath.substring(0, oldPath.lastIndexOf('/')) : '';
+  const newPath = dir ? `${dir}/${newName}` : newName;
+
+  try {
+    const res = await fetch(`/api/file?path=${encodeURIComponent(oldPath)}`);
+    const data = await res.json();
+    await fetch('/api/file', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath: newPath, content: data.content }),
+    });
+    await fetch(`/api/file?path=${encodeURIComponent(oldPath)}`, { method: 'DELETE' });
+    if (currentFile === oldPath) {
+      currentFile = newPath;
+      if (editor) editor._currentFile = newPath;
+    }
+    delete fileCache[oldPath];
+    await loadFileTree();
+    if (currentFile === newPath) openFile(newPath);
+  } catch (err) {
+    console.error('Rename failed:', err);
+  }
+}
+
+async function deleteFile(filePath) {
+  if (!confirm(`确定删除 ${filePath}？`)) return;
+  try {
+    await fetch(`/api/file?path=${encodeURIComponent(filePath)}`, { method: 'DELETE' });
+    delete fileCache[filePath];
+    if (currentFile === filePath) {
+      currentFile = null;
+      if (editor) editor.setValue('');
+    }
+    await loadFileTree();
+  } catch (err) {
+    console.error('Delete failed:', err);
   }
 }
 
@@ -484,19 +621,13 @@ async function createNewFile() {
 
 async function doRender() {
   const contentEl = document.getElementById('preview-content');
-  // const contentEl = document.getElementById('preview-content-pdf');
   const statusEl = document.getElementById('preview-status');
   if (!typstReady || !editor) return;
 
   const content = editor.getValue();
   try {
-    $typst.canvas(contentEl, { mainContent: content });
-    // const svg = await $typst.svg({ mainContent: content });
-    // contentEl.innerHTML = svg;
-    // const pdf = await $typst.pdf({ mainContent: content });
-    // contentEl.src = URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' }));
+    $typst.canvas(contentEl, { mainContent: content, pixelPerPt: 4 });
     applyZoom();
-
     statusEl.textContent = `就绪 - ${currentFile || '未命名'}`;
   } catch (err) {
     const msg = err?.message || String(err);
@@ -682,6 +813,18 @@ async function main() {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
       saveAllFiles();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'E') {
+      e.preventDefault();
+      exportSVG();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
+      e.preventDefault();
+      exportPDF();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      doRender();
     }
   });
 
