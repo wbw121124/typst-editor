@@ -664,7 +664,7 @@ function applyZoom() {
       // Nyquist 极限：当目标 DPI < 源 DPI 时需要抗混叠
       // 最优 blur σ ≈ 0.5 * (1/scale - 1) px（CSS 像素空间）
       // contrast 补偿经验值：恢复因 blur 损失的边缘对比度
-      const sigma = Math.max(0, 0.5625 * (1 / scale));
+      const sigma = Math.max(0, 0.5625 * (1 / scale + 1));
       const contrastBoost = 1 + sigma * 0.08;
 
       contentEl.style.filter = `blur(${sigma}px) contrast(${contrastBoost})`;
