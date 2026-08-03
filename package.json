@@ -13,6 +13,7 @@
     "@myriaddreamin/typst-ts-renderer": "^0.7.0",
     "@myriaddreamin/typst-ts-web-compiler": "^0.7.0",
     "@myriaddreamin/typst.ts": "^0.7.0",
+    "@vedivad/typst-web-service": "^0.18.8",
     "express": "^5.1.0",
     "monaco-editor": "^0.52.0",
     "pdfjs-dist": "^6.2.108",
@@ -21,7 +22,9 @@
     "vscode-textmate": "^9.3.2"
   },
   "devDependencies": {
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.6.0"
   },
   "author": {
     "email": "wbw121124@163.com",

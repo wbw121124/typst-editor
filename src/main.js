@@ -4,7 +4,8 @@ import { initTextMateGrammar, registerTextMateLanguage } from './textmate';
 import { $typst, TypstSnippet } from '@myriaddreamin/typst.ts/dist/esm/contrib/snippet.mjs';
 import { MemoryAccessModel } from '@myriaddreamin/typst.ts/dist/esm/fs/index.mjs';
 import loader from '@monaco-editor/loader';
-// import * as pdfjsLib from "pdfjs-dist";
+import { initProject, syncFile, isReady as isWasmReady, destroyProject } from './typst-project.js';
+import { registerLspFeatures } from './lsp-adapter.js';
 
 window.MonacoEnvironment = {
   getWorker(_, label) {
@@ -305,6 +306,13 @@ async function initEditor(monaco) {
     const statusEl = document.getElementById('preview-status');
     statusEl.innerText = '准备编译中...'
     fileCache[currentFile] = editor.getValue();
+
+    if (isWasmReady()) {
+      syncFile(currentFile, editor.getValue()).catch(e =>
+        console.warn('[TypstProject] Sync failed:', e)
+      );
+    }
+
     clearTimeout(compileTimer);
     compileTimer = setTimeout(() => doRender(), 5000);
   });
@@ -382,6 +390,7 @@ async function openFile(filePath) {
   }
 
   currentFile = filePath;
+  if (editor) editor._currentFile = filePath;
   let content;
 
   if (fileCache[filePath] !== undefined) {
@@ -415,6 +424,12 @@ async function openFile(filePath) {
   document.querySelectorAll('.file-item[data-path]').forEach((el) => {
     el.classList.toggle('active', el.dataset.path === filePath);
   });
+
+  if (isWasmReady()) {
+    syncFile(filePath, content || '').catch(e =>
+      console.warn('[TypstProject] Sync failed:', e)
+    );
+  }
 
   doRender();
 }
@@ -656,6 +671,8 @@ async function main() {
   setupFontSize();
   setupZoom();
 
+  registerLspFeatures(monaco, editor);
+
   document.getElementById('btn-new-file').addEventListener('click', createNewFile);
   document.getElementById('btn-save').addEventListener('click', saveAllFiles);
   document.getElementById('btn-export-svg').addEventListener('click', exportSVG);
@@ -668,6 +685,10 @@ async function main() {
     }
   });
 
+  initProject('/main.typ').catch(e =>
+    console.warn('[TypstProject] Init failed, LSP features disabled:', e)
+  );
+
   await initTypst();
   await loadFileTree();
 
@@ -678,6 +699,10 @@ async function main() {
     await loadFileTree();
   }
   openFile(defaultFile);
+
+  window.addEventListener('beforeunload', () => {
+    destroyProject();
+  });
 }
 
 main();
