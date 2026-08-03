@@ -652,27 +652,34 @@ function escapeHtml(str) {
 
 function applyZoom() {
   const contentEl = document.getElementById('preview-content');
+  const preview = document.getElementById('preview');
   const zoomLabel = document.getElementById('zoom-level');
-  if (contentEl) {
+
+  if (contentEl && preview) {
+    const maxScrollY = preview.scrollHeight - preview.clientHeight;
+    const maxScrollX = preview.scrollWidth - preview.clientWidth;
+    const scrollFractionY = maxScrollY > 0 ? preview.scrollTop / maxScrollY : 0;
+    const scrollFractionX = maxScrollX > 0 ? preview.scrollLeft / maxScrollX : 0;
+
     const scale = zoomLevel / 100;
     contentEl.style.transform = `scale(${scale})`;
 
     if (scale < 1) {
-      // pixelPerPt=4, 基准 DPI=72, 屏幕 DPI≈96
-      // 源有效 DPI = 4 * 72 = 288
-      // 目标有效 DPI = 288 * scale
-      // Nyquist 极限：当目标 DPI < 源 DPI 时需要抗混叠
-      // 最优 blur σ ≈ 0.5 * (1/scale - 1) px（CSS 像素空间）
-      // contrast 补偿经验值：恢复因 blur 损失的边缘对比度
       const sigma = Math.max(0, 0.5625 * (1 / scale + 1));
       const contrastBoost = 1 + sigma * 0.08;
-
       contentEl.style.filter = `blur(${sigma}px) contrast(${contrastBoost})`;
     } else {
-      // 放大时不需要抗混叠，清除 filter 保持锐利
       contentEl.style.filter = '';
     }
+
+    requestAnimationFrame(() => {
+      const newMaxScrollY = preview.scrollHeight - preview.clientHeight;
+      const newMaxScrollX = preview.scrollWidth - preview.clientWidth;
+      preview.scrollTop = scrollFractionY * newMaxScrollY;
+      preview.scrollLeft = scrollFractionX * newMaxScrollX;
+    });
   }
+
   if (zoomLabel) {
     zoomLabel.textContent = `${zoomLevel}%`;
   }
