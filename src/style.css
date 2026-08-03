@@ -99,6 +99,10 @@ body {
   color: #f44747;
 }
 
+#save-status.dirty {
+  color: #cca700;
+}
+
 #main {
   display: flex;
   flex: 1;
@@ -799,8 +803,8 @@ body {
 .linux .monaco-menu .monaco-action-bar.vertical .submenu-indicator,
 :host-context(.linux) .monaco-menu .monaco-action-bar.vertical .submenu-indicator {
   height: 100%;
-  mask-size: 10px 10px;
   -webkit-mask-size: 10px 10px;
+  mask-size: 10px 10px;
 }
 
 .monaco-menu .action-item {
@@ -829,4 +833,8 @@ body {
   --vscode-menu-selectionForeground: #ffffff !important;
   --vscode-menu-selectionBackground: #0078d4 !important;
   --vscode-menu-separatorBackground: #454545 !important;
+}
+
+canvas {
+  image-rendering: optimizeQuality;
 }

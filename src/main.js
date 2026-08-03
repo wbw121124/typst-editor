@@ -42,6 +42,7 @@ let fileCache = {};
 let compileTimer = null;
 let typstReady = false;
 let zoomLevel = 100;
+let isDirty = false;
 
 const DEFAULT_CONTENT = `// 欢迎使用 Typst 编辑器！
 // 工作区: ./typst/
@@ -317,6 +318,12 @@ async function initEditor(monaco) {
     const statusEl = document.getElementById('preview-status');
     statusEl.innerText = '准备编译中...'
     fileCache[currentFile] = editor.getValue();
+    isDirty = true;
+    const saveEl = document.getElementById('save-status');
+    if (saveEl.textContent !== '保存中...') {
+      saveEl.textContent = '未保存';
+      saveEl.className = 'dirty';
+    }
 
     if (isWasmReady()) {
       syncFile(currentFile, editor.getValue()).catch(e =>
@@ -527,6 +534,7 @@ async function openFile(filePath) {
   }
 
   currentFile = filePath;
+  isDirty = false;
   if (editor) editor._currentFile = filePath;
   let content;
 
@@ -585,7 +593,8 @@ async function saveCurrentFile() {
     });
     statusEl.textContent = '已保存';
     statusEl.className = 'saved';
-    setTimeout(() => { statusEl.textContent = ''; statusEl.className = ''; }, 2000);
+    isDirty = false;
+    setTimeout(() => { statusEl.textContent = ''; statusEl.className = ''; }, 3000);
   } catch (err) {
     console.error('Save failed:', err);
     statusEl.textContent = '错误!';
@@ -645,7 +654,24 @@ function applyZoom() {
   const contentEl = document.getElementById('preview-content');
   const zoomLabel = document.getElementById('zoom-level');
   if (contentEl) {
-    contentEl.style.transform = `scale(${zoomLevel / 100})`;
+    const scale = zoomLevel / 100;
+    contentEl.style.transform = `scale(${scale})`;
+
+    if (scale < 1) {
+      // pixelPerPt=4, 基准 DPI=72, 屏幕 DPI≈96
+      // 源有效 DPI = 4 * 72 = 288
+      // 目标有效 DPI = 288 * scale
+      // Nyquist 极限：当目标 DPI < 源 DPI 时需要抗混叠
+      // 最优 blur σ ≈ 0.5 * (1/scale - 1) px（CSS 像素空间）
+      // contrast 补偿经验值：恢复因 blur 损失的边缘对比度
+      const sigma = Math.max(0, 0.5625 * (1 / scale));
+      const contrastBoost = 1 + sigma * 0.08;
+
+      contentEl.style.filter = `blur(${sigma}px) contrast(${contrastBoost})`;
+    } else {
+      // 放大时不需要抗混叠，清除 filter 保持锐利
+      contentEl.style.filter = '';
+    }
   }
   if (zoomLabel) {
     zoomLabel.textContent = `${zoomLevel}%`;
@@ -814,15 +840,15 @@ async function main() {
       e.preventDefault();
       saveAllFiles();
     }
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'E') {
+    if ((e.ctrlKey || e.metaKey) && e.altKey && e.key === 'e') {
       e.preventDefault();
       exportSVG();
     }
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
+    if ((e.ctrlKey || e.metaKey) && e.altKey && e.key === 'p') {
       e.preventDefault();
       exportPDF();
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    if ((e.ctrlKey || e.metaKey) && e.altKey && e.key === 'c') {
       e.preventDefault();
       doRender();
     }
@@ -843,7 +869,11 @@ async function main() {
   }
   openFile(defaultFile);
 
-  window.addEventListener('beforeunload', () => {
+  window.addEventListener('beforeunload', (e) => {
+    if (isDirty) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
     destroyProject();
   });
 }
