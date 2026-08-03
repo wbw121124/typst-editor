@@ -21,6 +21,8 @@ $TargetPackages = @(
     "timeliney",
     # 盒子/装饰
     "umbra", "frame-it",
+    # 中文
+    "easy-pinyin", "kouhu",
     # 其他
     "pinit", "meander", "lovelace", "drafting",
     "wrap-it", "stack-pointer", "syntree"
