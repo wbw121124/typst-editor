@@ -331,22 +331,29 @@ body {
   background: #1e1e1e;
   color: #d4d4d4;
   display: flex;
-  justify-content: center;
   padding: 0 !important;
   margin: 0 !important;
   clip-path: inset(0 round var(--border-radius));
+  flex-direction: column;
+  flex-wrap: nowrap;
 }
 
 #preview-content {
-  transform-origin: top left;
   display: inline-block;
   padding: 20px;
-  width: 100%;
+  width: max-content;
+  height: max-content;
+  margin: auto;
 }
 
 #preview-content>svg {
   background-color: white;
   width: 100%;
+}
+
+#preview-content .typst-page.canvas canvas {
+  display: block;
+  background: #fff;
 }
 
 .error-message {
@@ -511,6 +518,8 @@ body {
 .typst-page {
   margin-bottom: 25px;
   box-shadow: black 1px 1px 10px;
+  width: max-content;
+  height: max-content;
 }
 
 /* Monaco Context Menu */

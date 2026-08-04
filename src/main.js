@@ -2,39 +2,37 @@ import { registerTypstLanguage, registerTypstSnippets } from './typst-lang';
 import { initTextMateGrammar, registerTextMateLanguage } from './textmate';
 import { $typst, TypstSnippet } from '@myriaddreamin/typst.ts/dist/esm/contrib/snippet.mjs';
 import { MemoryAccessModel } from '@myriaddreamin/typst.ts/dist/esm/fs/index.mjs';
-import loader from '@monaco-editor/loader';
+import * as monaco from 'monaco-editor';
+import '../node_modules/monaco-editor/min/vs/editor/editor.main.css';
+import editorWorker from '../node_modules/monaco-editor/esm/vs/editor/editor.worker?worker';
+import jsonWorker from '../node_modules/monaco-editor/esm/vs/language/json/json.worker?worker';
+import cssWorker from '../node_modules/monaco-editor/esm/vs/language/css/css.worker?worker';
+import htmlWorker from '../node_modules/monaco-editor/esm/vs/language/html/html.worker?worker';
+import tsWorker from '../node_modules/monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 import { initProject, syncFile, isReady as isWasmReady, destroyProject } from './typst-project.js';
 import { registerLspFeatures } from './lsp-adapter.js';
 
 window.MonacoEnvironment = {
   getWorker(_, label) {
-    const getWorkerModule = (moduleUrl) => {
-      return new Worker(new URL(moduleUrl, import.meta.url), { type: 'module' });
-    };
     switch (label) {
       case 'json':
-        return getWorkerModule('monaco-editor/esm/vs/language/json/json.worker.js');
+        return new jsonWorker();
       case 'css':
       case 'scss':
       case 'less':
-        return getWorkerModule('monaco-editor/esm/vs/language/css/css.worker.js');
+        return new cssWorker();
       case 'html':
       case 'handlebars':
       case 'razor':
-        return getWorkerModule('monaco-editor/esm/vs/language/html/html.worker.js');
+        return new htmlWorker();
       case 'typescript':
       case 'javascript':
-        return getWorkerModule('monaco-editor/esm/vs/language/typescript/ts.worker.js');
+        return new tsWorker();
       default:
-        return getWorkerModule('monaco-editor/esm/vs/editor/editor.worker.js');
+        return new editorWorker();
     }
   },
 };
-
-loader.config({
-  paths: { vs: '/vs' },
-  'vs/nls': { availableLanguages: { '*': 'zh-cn' } },
-});
 
 let editor = null;
 let currentFile = null;
@@ -43,6 +41,52 @@ let compileTimer = null;
 let typstReady = false;
 let zoomLevel = 100;
 let isDirty = false;
+let cachedVectorData = null;
+let renderChain = Promise.resolve();
+let zoomTimer = null;
+let lazyTimer = null;
+let renderedPageIndices = new Set();
+let hiddenCanvas = null;
+let compilerWorker = null;
+let compilerRequestId = 0;
+const compilerPending = new Map();
+const LAZY_MARGIN = 200;
+
+function getHiddenCanvas() {
+  if (!hiddenCanvas) hiddenCanvas = document.createElement('canvas');
+  return hiddenCanvas;
+}
+
+function getCompilerWorker() {
+  if (!compilerWorker) {
+    compilerWorker = new Worker(new URL('./typst-compiler-worker.js', import.meta.url), {
+      type: 'module',
+    });
+    compilerWorker.addEventListener('message', (event) => {
+      const { id, ok, data, error } = event.data;
+      const pending = compilerPending.get(id);
+      if (!pending) return;
+      compilerPending.delete(id);
+      if (ok) pending.resolve(data);
+      else pending.reject(new Error(error || 'compile failed'));
+    });
+    compilerWorker.addEventListener('error', (event) => {
+      for (const pending of compilerPending.values()) {
+        pending.reject(new Error(event.message || 'compiler worker error'));
+      }
+      compilerPending.clear();
+    });
+  }
+  return compilerWorker;
+}
+
+function compileInWorker(mainContent, format = 'vector') {
+  const id = ++compilerRequestId;
+  return new Promise((resolve, reject) => {
+    compilerPending.set(id, { resolve, reject });
+    getCompilerWorker().postMessage({ id, mainContent, format });
+  });
+}
 
 const DEFAULT_CONTENT = `// 欢迎使用 Typst 编辑器！
 // 工作区: ./typst/
@@ -628,20 +672,246 @@ async function createNewFile() {
   }
 }
 
-async function doRender() {
+function queueRender(task) {
+  renderChain = renderChain.then(task).catch((err) => {
+    console.error('[Render] failed:', err);
+  });
+  return renderChain;
+}
+
+function doRender() {
   const contentEl = document.getElementById('preview-content');
   const statusEl = document.getElementById('preview-status');
   if (!typstReady || !editor) return;
 
   const content = editor.getValue();
-  try {
-    $typst.canvas(contentEl, { mainContent: content, pixelPerPt: 4 });
-    applyZoom();
-    statusEl.textContent = `就绪 - ${currentFile || '未命名'}`;
-  } catch (err) {
-    const msg = err?.message || String(err);
-    statusEl.textContent = '错误: ' + msg;
-    contentEl.innerHTML = `<div class="error-message">${escapeHtml(msg)}</div>`;
+  queueRender(async () => {
+    try {
+      const vectorData = await compileInWorker(content);
+      cachedVectorData = vectorData;
+      await drawPreview();
+      statusEl.textContent = `就绪 - ${currentFile || '未命名'}`;
+    } catch (err) {
+      const msg = err?.message || String(err);
+      statusEl.textContent = '错误: ' + msg;
+      contentEl.innerHTML = `<div class="error-message">${escapeHtml(msg)}</div>`;
+    }
+  });
+}
+
+function getPageCanvasList() {
+  return Array.from(document.querySelectorAll('#preview-content > .typst-page.canvas > canvas'));
+}
+
+function getVisiblePageIndices() {
+  const preview = document.getElementById('preview');
+  const contentEl = document.getElementById('preview-content');
+  if (!preview || !contentEl) return null;
+  const previewRect = preview.getBoundingClientRect();
+  const viewTop = previewRect.top;
+  const viewBottom = previewRect.bottom;
+  const pages = contentEl.querySelectorAll('.typst-page.canvas');
+  const indices = [];
+  for (let i = 0; i < pages.length; i++) {
+    const rect = pages[i].getBoundingClientRect();
+    if (rect.bottom >= viewTop - LAZY_MARGIN && rect.top <= viewBottom + LAZY_MARGIN) {
+      indices.push(i);
+    }
+  }
+  return indices;
+}
+
+function bresenhamDownscale(src, canvas) {
+  const sD = src.data;
+  const sw = src.width;
+  const sh = src.height;
+  const dw = canvas.width;
+  const dh = canvas.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const img = ctx.createImageData(dw, dh);
+  const dD = img.data;
+  const stepX = sw / dw;
+  const stepY = sh / dh;
+
+  const sx0s = new Int32Array(dw);
+  const sx1s = new Int32Array(dw);
+  let sx = 0;
+  for (let x = 0; x < dw; x++) {
+    sx0s[x] = Math.floor(sx);
+    sx1s[x] = Math.min(sw - 1, Math.floor(sx + stepX));
+    sx += stepX;
+  }
+
+  let sy = 0;
+  for (let y = 0; y < dh; y++) {
+    const sy0 = Math.floor(sy);
+    const sy1 = Math.min(sh - 1, Math.floor(sy + stepY));
+    const dRow = y * dw;
+    for (let x = 0; x < dw; x++) {
+      const sx0 = sx0s[x];
+      const sx1 = sx1s[x];
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      for (let j = sy0; j <= sy1; j++) {
+        let o = (j * sw + sx0) * 4;
+        for (let i = sx0; i <= sx1; i++) {
+          r += sD[o];
+          g += sD[o + 1];
+          b += sD[o + 2];
+          a += sD[o + 3];
+          o += 4;
+        }
+      }
+      const n = (sx1 - sx0 + 1) * (sy1 - sy0 + 1);
+      const o = (dRow + x) * 4;
+      dD[o] = r / n;
+      dD[o + 1] = g / n;
+      dD[o + 2] = b / n;
+      dD[o + 3] = a / n;
+    }
+    sy += stepY;
+  }
+
+  ctx.putImageData(img, 0, 0);
+}
+
+async function drawPreview(pagesToRender, resetRendered = true) {
+  const contentEl = document.getElementById('preview-content');
+  if (!contentEl || !cachedVectorData) return;
+
+  if (resetRendered) renderedPageIndices = new Set();
+
+  const renderer = await $typst.getRenderer();
+  if (!renderer) throw new Error('renderer not ready');
+  const scale = zoomLevel / 100;
+
+  await renderer.runWithSession(async (session) => {
+    renderer.manipulateData({
+      renderSession: session,
+      action: 'reset',
+      data: cachedVectorData,
+    });
+    const pagesInfo = session.retrievePagesInfo();
+    if (pagesInfo.length === 0) throw new Error('No page found in session');
+
+    const canvases = getPageCanvasList();
+    if (canvases.length !== pagesInfo.length) {
+      contentEl.innerHTML = '';
+      for (let i = 0; i < pagesInfo.length; i++) {
+        const pageDiv = document.createElement('div');
+        pageDiv.className = 'typst-page canvas';
+        pageDiv.appendChild(document.createElement('canvas'));
+        contentEl.appendChild(pageDiv);
+      }
+      renderedPageIndices = new Set();
+    }
+
+    const pageCanvases = getPageCanvasList();
+    for (let i = 0; i < pagesInfo.length; i++) {
+      const canvas = pageCanvases[i];
+      const cssW = Math.max(1, Math.round(pagesInfo[i].width * scale));
+      const cssH = Math.max(1, Math.round(pagesInfo[i].height * scale));
+      canvas.dataset.ptW = pagesInfo[i].width;
+      canvas.dataset.ptH = pagesInfo[i].height;
+      if (canvas.dataset.cssW != cssW || canvas.dataset.cssH != cssH) {
+        canvas.style.width = `${cssW}px`;
+        canvas.style.height = `${cssH}px`;
+        canvas.dataset.cssW = cssW;
+        canvas.dataset.cssH = cssH;
+      }
+    }
+
+    if (pagesToRender === undefined) {
+      const visible = getVisiblePageIndices();
+      pagesToRender = visible && visible.length > 0 ? visible : pagesInfo.map((_, i) => i);
+    }
+
+    for (const i of pagesToRender) {
+      if (i < 0 || i >= pagesInfo.length) continue;
+      if (renderedPageIndices.has(i)) continue;
+      const page = pagesInfo[i];
+      const canvas = pageCanvases[i];
+      const dstW = Math.max(1, Math.round(page.width * scale));
+      const dstH = Math.max(1, Math.round(page.height * scale));
+
+      canvas.width = dstW;
+      canvas.height = dstH;
+
+      const src = getHiddenCanvas();
+      src.width = Math.max(1, Math.round(page.width * scale * 2));
+      src.height = Math.max(1, Math.round(page.height * scale * 2));
+      const srcCtx = src.getContext('2d', { willReadFrequently: true });
+      if (!srcCtx) throw new Error('canvas context is null');
+
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await renderer.renderCanvas({
+        renderSession: session,
+        canvas: srcCtx,
+        pageOffset: page.pageOffset,
+        pixelPerPt: src.width / page.width,
+        backgroundColor: '#ffffff',
+      });
+
+      bresenhamDownscale(srcCtx.getImageData(0, 0, src.width, src.height), canvas);
+      renderedPageIndices.add(i);
+    }
+  });
+
+  updateZoomLayout();
+}
+
+function scheduleLazyRender() {
+  clearTimeout(lazyTimer);
+  lazyTimer = setTimeout(() => {
+    if (!cachedVectorData) return;
+    const visible = getVisiblePageIndices();
+    if (!visible || visible.length === 0) return;
+    const pending = visible.filter((i) => !renderedPageIndices.has(i));
+    if (pending.length > 0) {
+      queueRender(() => drawPreview(pending, false));
+    }
+  }, 120);
+}
+
+function setupLazyRender() {
+  const preview = document.getElementById('preview');
+  if (!preview) return;
+  preview.addEventListener(
+    'scroll',
+    () => {
+      if (!cachedVectorData) return;
+      scheduleLazyRender();
+    },
+    { passive: true }
+  );
+}
+
+function scheduleZoomRender() {
+  clearTimeout(zoomTimer);
+  zoomTimer = setTimeout(() => {
+    queueRender(() => {
+      if (cachedVectorData) return drawPreview();
+    });
+  }, 100);
+}
+
+function applyZoomResize() {
+  const scale = zoomLevel / 100;
+  const canvases = getPageCanvasList();
+  for (const canvas of canvases) {
+    const ptW = parseFloat(canvas.dataset.ptW);
+    const ptH = parseFloat(canvas.dataset.ptH);
+    if (!ptW || !ptH) continue;
+    const cssW = Math.max(1, Math.round(ptW * scale));
+    const cssH = Math.max(1, Math.round(ptH * scale));
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
+    canvas.dataset.cssW = cssW;
+    canvas.dataset.cssH = cssH;
   }
 }
 
@@ -650,27 +920,15 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function applyZoom() {
-  const contentEl = document.getElementById('preview-content');
+function updateZoomLayout() {
   const preview = document.getElementById('preview');
   const zoomLabel = document.getElementById('zoom-level');
 
-  if (contentEl && preview) {
+  if (preview) {
     const maxScrollY = preview.scrollHeight - preview.clientHeight;
     const maxScrollX = preview.scrollWidth - preview.clientWidth;
     const scrollFractionY = maxScrollY > 0 ? preview.scrollTop / maxScrollY : 0;
     const scrollFractionX = maxScrollX > 0 ? preview.scrollLeft / maxScrollX : 0;
-
-    const scale = zoomLevel / 100;
-    contentEl.style.transform = `scale(${scale})`;
-
-    if (scale < 1) {
-      const sigma = Math.max(0, 0.5625 * (1 / scale + 1));
-      const contrastBoost = 1 + sigma * 0.08;
-      contentEl.style.filter = `blur(${sigma}px) contrast(${contrastBoost})`;
-    } else {
-      contentEl.style.filter = '';
-    }
 
     requestAnimationFrame(() => {
       const newMaxScrollY = preview.scrollHeight - preview.clientHeight;
@@ -688,17 +946,23 @@ function applyZoom() {
 function setupZoom() {
   document.getElementById('btn-zoom-in').addEventListener('click', () => {
     zoomLevel = Math.min(300, zoomLevel + 10);
-    applyZoom();
+    applyZoomResize();
+    updateZoomLayout();
+    scheduleZoomRender();
   });
 
   document.getElementById('btn-zoom-out').addEventListener('click', () => {
     zoomLevel = Math.max(25, zoomLevel - 10);
-    applyZoom();
+    applyZoomResize();
+    updateZoomLayout();
+    scheduleZoomRender();
   });
 
   document.getElementById('btn-zoom-reset').addEventListener('click', () => {
     zoomLevel = 100;
-    applyZoom();
+    applyZoomResize();
+    updateZoomLayout();
+    scheduleZoomRender();
   });
 }
 
@@ -798,7 +1062,7 @@ function setupFontSize() {
 async function exportSVG() {
   if (!typstReady || !editor) return;
   try {
-    const svg = await $typst.svg({ mainContent: editor.getValue() });
+    const svg = await compileInWorker(editor.getValue(), 'svg');
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     downloadBlob(blob, (currentFile || 'document').replace(/\.typ$/, '') + '.svg');
   } catch (err) {
@@ -809,7 +1073,7 @@ async function exportSVG() {
 async function exportPDF() {
   if (!typstReady || !editor) return;
   try {
-    const pdfData = await $typst.pdf({ mainContent: editor.getValue() });
+    const pdfData = await compileInWorker(editor.getValue(), 'pdf');
     const blob = new Blob([pdfData], { type: 'application/pdf' });
     downloadBlob(blob, (currentFile || 'document').replace(/\.typ$/, '') + '.pdf');
   } catch (err) {
@@ -827,13 +1091,13 @@ function downloadBlob(blob, filename) {
 }
 
 async function main() {
-  const monaco = await loader.init();
   window.monaco = monaco;
 
   await initEditor(monaco);
   setupDivider();
   setupFontSize();
   setupZoom();
+  setupLazyRender();
 
   registerLspFeatures(monaco, editor);
 

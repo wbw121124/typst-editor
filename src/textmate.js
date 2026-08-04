@@ -108,27 +108,27 @@ function injectColorMapViaRequire(registry) {
   const colorMap = registry.getColorMap();
   if (!colorMap || colorMap.length === 0) return;
 
-  // Monaco's built version exposes AMD require
+  // Update Monaco's tokenization registry; always fall back to CSS injection.
   if (typeof window.require === 'function') {
     try {
       window.require(
-        ['vs/editor/editor.main'],
-        function () {
-          // Access TokenizationRegistry via the internal module path
-          window.require(
-            ['vs/editor/common/tokenizationRegistry'],
-            function (tokenizationRegistry) {
-              if (tokenizationRegistry.TokenizationRegistry) {
-                tokenizationRegistry.TokenizationRegistry.setColorMap(colorMap);
-              }
-              // Generate and inject CSS
-              injectColorMapCSS(colorMap);
-            },
-          );
+        ['vs/editor/common/tokenizationRegistry'],
+        function (tokenizationRegistry) {
+          const tr = tokenizationRegistry && tokenizationRegistry.TokenizationRegistry;
+          if (tr) {
+            const setter =
+              typeof tr.setColorMap === 'function'
+                ? tr.setColorMap.bind(tr)
+                : typeof tr._setColorMap === 'function'
+                  ? tr._setColorMap.bind(tr)
+                  : null;
+            if (setter) setter(colorMap);
+          }
+          // Generate and inject CSS
+          injectColorMapCSS(colorMap);
         },
       );
     } catch (e) {
-      console.warn('AMD require failed, falling back to CSS injection:', e);
       injectColorMapCSS(colorMap);
     }
   } else {
