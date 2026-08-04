@@ -32,10 +32,11 @@ async function pump() {
     postResult(req, result);
   } catch (err) {
     if (!current.superseded) {
+      const detail = err && (err.stack || err.message || String(err));
       self.postMessage({
         id: req.id,
         ok: false,
-        error: (err && (err.message || String(err))) || 'unknown',
+        error: detail || 'unknown',
       });
     }
   } finally {
@@ -58,7 +59,29 @@ function postResult(req, result) {
   self.postMessage({ id: req.id, ok: true, data: bytes }, [buffer]);
 }
 
+async function compilePdf(req) {
+  const compiler = await getCompiler();
+  compiler.addSource(MAIN_PATH, req.mainContent);
+  const res = await compiler.compile({
+    mainFilePath: MAIN_PATH,
+    format: CompileFormatEnum.pdf,
+    diagnostics: 'none',
+  });
+  return res.result;
+}
+
 async function doCompile(req) {
+  if (req.format === 'pdf') {
+    try {
+      return await compilePdf(req);
+    } catch (err) {
+      try {
+        (await getCompiler()).reset();
+      } catch (_) {}
+      return compilePdf(req);
+    }
+  }
+
   const compiler = await getCompiler();
   compiler.addSource(MAIN_PATH, req.mainContent);
 
@@ -74,15 +97,6 @@ async function doCompile(req) {
     lastContent = req.mainContent;
     lastVectorData = data;
     return data;
-  }
-
-  if (req.format === 'pdf') {
-    const res = await compiler.compile({
-      mainFilePath: MAIN_PATH,
-      format: CompileFormatEnum.pdf,
-      diagnostics: 'none',
-    });
-    return res.result;
   }
 
   throw new Error(`unknown format: ${req.format}`);
@@ -134,7 +148,21 @@ $typst.use(
   provider,
 );
 
+function withModernWasmInit(mod) {
+  return new Proxy(mod, {
+    get(target, prop) {
+      if (prop === 'default') {
+        const init = target.default;
+        return (module_or_path) => init({ module_or_path });
+      }
+      return Reflect.get(target, prop);
+    },
+  });
+}
+
 $typst.setCompilerInitOptions({
+  getWrapper: () =>
+    import('@myriaddreamin/typst-ts-web-compiler').then((mod) => withModernWasmInit(mod)),
   getModule: () =>
     fetch('/typst-wasm/typst_ts_web_compiler_bg.wasm').then((r) => r.arrayBuffer()),
 });
