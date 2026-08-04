@@ -2,6 +2,7 @@ import { registerTypstLanguage, registerTypstSnippets } from './typst-lang';
 import { initTextMateGrammar, registerTextMateLanguage } from './textmate';
 import { $typst, TypstSnippet } from '@myriaddreamin/typst.ts/dist/esm/contrib/snippet.mjs';
 import { MemoryAccessModel } from '@myriaddreamin/typst.ts/dist/esm/fs/index.mjs';
+import { createTypstRenderer } from '@myriaddreamin/typst.ts/dist/esm/renderer.mjs';
 import * as monaco from 'monaco-editor';
 import '../node_modules/monaco-editor/min/vs/editor/editor.main.css';
 import editorWorker from '../node_modules/monaco-editor/esm/vs/editor/editor.worker?worker';
@@ -45,6 +46,7 @@ let cachedVectorData = null;
 let renderChain = Promise.resolve();
 let zoomTimer = null;
 let lazyTimer = null;
+let zoomAnchor = null;
 let renderedPageIndices = new Set();
 let hiddenCanvas = null;
 let compilerWorker = null;
@@ -63,12 +65,17 @@ function getCompilerWorker() {
       type: 'module',
     });
     compilerWorker.addEventListener('message', (event) => {
-      const { id, ok, data, error } = event.data;
+      const { id, ok, data, error, cancelled } = event.data;
       const pending = compilerPending.get(id);
       if (!pending) return;
       compilerPending.delete(id);
-      if (ok) pending.resolve(data);
-      else pending.reject(new Error(error || 'compile failed'));
+      if (cancelled) {
+        pending.resolve({ __cancelled: true });
+      } else if (ok) {
+        pending.resolve(data);
+      } else {
+        pending.reject(new Error(error || 'compile failed'));
+      }
     });
     compilerWorker.addEventListener('error', (event) => {
       for (const pending of compilerPending.values()) {
@@ -327,6 +334,29 @@ async function initTypst() {
     statusEl.textContent = '加载 Typst 失败: ' + (err.message || err);
     console.error(err);
   }
+}
+
+let rendererPromise = null;
+let rendererInstance = null;
+
+function getRendererInstance() {
+  if (!rendererPromise) {
+    rendererPromise = (async () => {
+      const renderer = createTypstRenderer();
+      await renderer.init({
+        getModule: () =>
+          fetch('/typst-wasm/typst_ts_renderer_bg.wasm').then((r) => r.arrayBuffer()),
+      });
+      rendererInstance = renderer;
+      return renderer;
+    })();
+  }
+  return rendererPromise;
+}
+
+function resetRenderer() {
+  rendererPromise = null;
+  rendererInstance = null;
 }
 
 async function initEditor(monaco) {
@@ -688,6 +718,7 @@ function doRender() {
   queueRender(async () => {
     try {
       const vectorData = await compileInWorker(content);
+      if (!vectorData || vectorData.__cancelled) return;
       cachedVectorData = vectorData;
       await drawPreview();
       statusEl.textContent = `就绪 - ${currentFile || '未命名'}`;
@@ -785,10 +816,17 @@ async function drawPreview(pagesToRender, resetRendered = true) {
 
   if (resetRendered) renderedPageIndices = new Set();
 
-  const renderer = await $typst.getRenderer();
+  let renderer;
+  try {
+    renderer = await getRendererInstance();
+  } catch (err) {
+    resetRenderer();
+    throw new Error('renderer not ready: ' + (err.message || err));
+  }
   if (!renderer) throw new Error('renderer not ready');
   const scale = zoomLevel / 100;
 
+  try {
   await renderer.runWithSession(async (session) => {
     renderer.manipulateData({
       renderSession: session,
@@ -860,6 +898,10 @@ async function drawPreview(pagesToRender, resetRendered = true) {
       renderedPageIndices.add(i);
     }
   });
+  } catch (err) {
+    resetRenderer();
+    throw err;
+  }
 
   updateZoomLayout();
 }
@@ -899,8 +941,32 @@ function scheduleZoomRender() {
   }, 100);
 }
 
-function applyZoomResize() {
-  const scale = zoomLevel / 100;
+let zoomTaskStack = [];
+let zoomTaskRunning = false;
+
+function applyZoomResize(zoom = zoomLevel) {
+  zoomTaskStack.push(zoom);
+  drainZoomTaskStack();
+}
+
+function drainZoomTaskStack() {
+  if (zoomTaskRunning || zoomTaskStack.length === 0) return;
+  const target = zoomTaskStack[zoomTaskStack.length - 1];
+  zoomTaskStack = [];
+  zoomTaskRunning = true;
+
+  captureZoomAnchor();
+  zoomLevel = target;
+  performZoomResize(target);
+  scheduleZoomRender();
+  updateZoomLayout(() => {
+    zoomTaskRunning = false;
+    drainZoomTaskStack();
+  });
+}
+
+function performZoomResize(zoom) {
+  const scale = zoom / 100;
   const canvases = getPageCanvasList();
   for (const canvas of canvases) {
     const ptW = parseFloat(canvas.dataset.ptW);
@@ -920,49 +986,63 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function updateZoomLayout() {
+function captureZoomAnchor() {
+  const preview = document.getElementById('preview');
+  if (!preview) return;
+  zoomAnchor = {
+    zoom: zoomLevel,
+    top: preview.scrollTop,
+    left: preview.scrollLeft,
+    clientWidth: preview.clientWidth,
+    clientHeight: preview.clientHeight,
+  };
+}
+
+function updateZoomLayout(done) {
   const preview = document.getElementById('preview');
   const zoomLabel = document.getElementById('zoom-level');
 
-  if (preview) {
-    const maxScrollY = preview.scrollHeight - preview.clientHeight;
-    const maxScrollX = preview.scrollWidth - preview.clientWidth;
-    const scrollFractionY = maxScrollY > 0 ? preview.scrollTop / maxScrollY : 0;
-    const scrollFractionX = maxScrollX > 0 ? preview.scrollLeft / maxScrollX : 0;
-
-    requestAnimationFrame(() => {
-      const newMaxScrollY = preview.scrollHeight - preview.clientHeight;
-      const newMaxScrollX = preview.scrollWidth - preview.clientWidth;
-      preview.scrollTop = scrollFractionY * newMaxScrollY;
-      preview.scrollLeft = scrollFractionX * newMaxScrollX;
-    });
-  }
-
   if (zoomLabel) {
     zoomLabel.textContent = `${zoomLevel}%`;
+  }
+
+  function finish() {
+    if (done) done();
+  }
+
+  if (preview) {
+    requestAnimationFrame(() => {
+      if (preview.scrollHeight === 0) {
+        zoomAnchor = null;
+        finish();
+        return;
+      }
+      if (zoomAnchor) {
+        const factor = zoomLevel / zoomAnchor.zoom;
+        const anchorY = zoomAnchor.top + zoomAnchor.clientHeight / 2;
+        const anchorX = zoomAnchor.left + zoomAnchor.clientWidth / 2;
+        preview.scrollTop = Math.max(0, Math.round(anchorY * factor - zoomAnchor.clientHeight / 2));
+        preview.scrollLeft = Math.max(0, Math.round(anchorX * factor - zoomAnchor.clientWidth / 2));
+        zoomAnchor = null;
+      }
+      finish();
+    });
+  } else {
+    finish();
   }
 }
 
 function setupZoom() {
   document.getElementById('btn-zoom-in').addEventListener('click', () => {
-    zoomLevel = Math.min(300, zoomLevel + 10);
-    applyZoomResize();
-    updateZoomLayout();
-    scheduleZoomRender();
+    applyZoomResize(Math.min(300, zoomLevel + 10));
   });
 
   document.getElementById('btn-zoom-out').addEventListener('click', () => {
-    zoomLevel = Math.max(25, zoomLevel - 10);
-    applyZoomResize();
-    updateZoomLayout();
-    scheduleZoomRender();
+    applyZoomResize(Math.max(25, zoomLevel - 10));
   });
 
   document.getElementById('btn-zoom-reset').addEventListener('click', () => {
-    zoomLevel = 100;
-    applyZoomResize();
-    updateZoomLayout();
-    scheduleZoomRender();
+    applyZoomResize(100);
   });
 }
 
@@ -1062,10 +1142,25 @@ function setupFontSize() {
 async function exportSVG() {
   if (!typstReady || !editor) return;
   try {
-    const svg = await compileInWorker(editor.getValue(), 'svg');
+    let data = cachedVectorData;
+    if (!data || data.__cancelled) {
+      const res = await compileInWorker(editor.getValue(), 'vector');
+      if (!res || res.__cancelled) throw new Error('编译已取消');
+      data = res;
+    }
+    const renderer = await getRendererInstance();
+    const svg = await renderer.runWithSession(async (session) => {
+      renderer.manipulateData({
+        renderSession: session,
+        action: 'reset',
+        data,
+      });
+      return session.renderSvg({});
+    });
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     downloadBlob(blob, (currentFile || 'document').replace(/\.typ$/, '') + '.svg');
   } catch (err) {
+    resetRenderer();
     console.error('Export SVG failed:', err);
   }
 }

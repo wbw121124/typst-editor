@@ -1,30 +1,101 @@
 import { $typst, TypstSnippet } from '@myriaddreamin/typst.ts/dist/esm/contrib/snippet.mjs';
 import { MemoryAccessModel } from '@myriaddreamin/typst.ts/dist/esm/fs/index.mjs';
+import { CompileFormatEnum } from '@myriaddreamin/typst.ts/dist/esm/compiler.mjs';
 
-self.addEventListener('message', async (event) => {
-  const { id, mainContent, format = 'vector' } = event.data;
-  try {
-    let result;
-    if (format === 'svg') {
-      result = await $typst.svg({ mainContent });
-    } else if (format === 'pdf') {
-      result = await $typst.pdf({ mainContent });
-    } else {
-      result = await $typst.vector({ mainContent });
+const MAIN_PATH = '/worker-main.typ';
+
+let current = null;
+let pending = null;
+
+self.addEventListener('message', (event) => {
+  const req = event.data;
+  if (current) {
+    if (req.format === 'vector') {
+      current.superseded = true;
     }
-
-    if (typeof result === 'string') {
-      self.postMessage({ id, ok: true, data: result });
-      return;
-    }
-
-    const bytes = result instanceof Uint8Array ? result : new Uint8Array(result);
-    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-    self.postMessage({ id, ok: true, data: bytes }, [buffer]);
-  } catch (err) {
-    self.postMessage({ id, ok: false, error: (err && (err.message || String(err))) || 'unknown' });
+    pending = req;
+  } else if (pending) {
+    pending = req;
+  } else {
+    pending = req;
   }
+  pump();
 });
+
+async function pump() {
+  if (current || !pending) return;
+  const req = pending;
+  pending = null;
+  current = req;
+  try {
+    const result = await doCompile(req);
+    postResult(req, result);
+  } catch (err) {
+    if (!current.superseded) {
+      self.postMessage({
+        id: req.id,
+        ok: false,
+        error: (err && (err.message || String(err))) || 'unknown',
+      });
+    }
+  } finally {
+    current = null;
+    pump();
+  }
+}
+
+function postResult(req, result) {
+  if (current.superseded) {
+    self.postMessage({ id: req.id, ok: false, cancelled: true });
+    return;
+  }
+  if (typeof result === 'string') {
+    self.postMessage({ id: req.id, ok: true, data: result });
+    return;
+  }
+  const bytes = result instanceof Uint8Array ? result : new Uint8Array(result);
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  self.postMessage({ id: req.id, ok: true, data: bytes }, [buffer]);
+}
+
+async function doCompile(req) {
+  const compiler = await getCompiler();
+  compiler.addSource(MAIN_PATH, req.mainContent);
+
+  if (req.format === 'vector') {
+    if (lastContent === req.mainContent && lastVectorData) {
+      return lastVectorData;
+    }
+    const res = await compiler.compile({
+      mainFilePath: MAIN_PATH,
+      diagnostics: 'none',
+    });
+    const data = res.result;
+    lastContent = req.mainContent;
+    lastVectorData = data;
+    return data;
+  }
+
+  if (req.format === 'pdf') {
+    const res = await compiler.compile({
+      mainFilePath: MAIN_PATH,
+      format: CompileFormatEnum.pdf,
+      diagnostics: 'none',
+    });
+    return res.result;
+  }
+
+  throw new Error(`unknown format: ${req.format}`);
+}
+
+let compilerPromise = null;
+let lastContent = null;
+let lastVectorData = null;
+
+function getCompiler() {
+  if (!compilerPromise) compilerPromise = $typst.getCompiler();
+  return compilerPromise;
+}
 
 const base = self.location.origin + '/packages/';
 const accessModel = new MemoryAccessModel();
