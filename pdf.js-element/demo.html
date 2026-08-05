@@ -1,0 +1,181 @@
+<!doctype html>
+<!--
+Copyright 2026 wbw121124
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pdf-viewer-element demo</title>
+    <link rel="stylesheet" href="pdf-viewer-element.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background-color: #1e1e1e;
+        color: #d4d4d4;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        box-sizing: border-box;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        overflow: hidden;
+      }
+      h1 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      .controls button {
+        background: #3c3c3c;
+        color: #d4d4d4;
+        border: 1px solid #454545;
+        border-radius: 4px;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      .controls button:hover {
+        background: #454545;
+      }
+      .viewers {
+        flex: 1;
+        display: flex;
+        gap: 12px;
+        min-height: 0;
+      }
+      pdf-viewer-element {
+        flex: 1;
+        min-width: 0;
+        border: 1px solid #454545;
+        background: #1e1e1e;
+      }
+      #eventLog {
+        height: 84px;
+        overflow: auto;
+        font: 11px/1.5 monospace;
+        background: #252526;
+        border: 1px solid #454545;
+        border-radius: 4px;
+        padding: 6px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>pdf-viewer-element demo (two independent instances)</h1>
+    <p style="margin: 0; font-size: 13px">
+      两个实例均为中文界面 (lang="zh-CN")
+    </p>
+
+    <div class="controls">
+      <button id="prev">Prev</button>
+      <button id="next">Next</button>
+      <button id="zoomIn">Zoom +</button>
+      <button id="zoomOut">Zoom −</button>
+      <button id="rotateCw">Rotate ⟳</button>
+      <button id="rotateCcw">Rotate ⟲</button>
+      <button id="firstPage">First</button>
+      <button id="lastPage">Last</button>
+      <button id="setZoom2">Zoom 200%</button>
+      <span id="status"></span>
+    </div>
+
+    <div class="viewers">
+      <pdf-viewer-element
+        id="viewer1"
+        src="compressed.tracemonkey-pldi-09.pdf"
+        page="1"
+        lang="zh-CN"
+        l10n-url="locale/"
+        worker-src="pdf.worker.mjs"
+        c-map-url="cmaps/"
+        standard-font-data-url="standard_fonts/"
+        wasm-url="wasm/"
+        sandbox-bundle-src="pdf.sandbox.mjs"
+      ></pdf-viewer-element>
+      <pdf-viewer-element
+        id="viewer2"
+        src="compressed.tracemonkey-pldi-09.pdf"
+        page="3"
+        zoom="1.25"
+        lang="zh-CN"
+        l10n-url="locale/"
+        worker-src="pdf.worker.mjs"
+        c-map-url="cmaps/"
+        standard-font-data-url="standard_fonts/"
+        wasm-url="wasm/"
+        sandbox-bundle-src="pdf.sandbox.mjs"
+      ></pdf-viewer-element>
+    </div>
+
+    <div id="eventLog"></div>
+
+    <script type="module">
+      import { PDFViewerElement } from "./pdf-viewer-element.mjs";
+
+      const viewer1 = document.getElementById("viewer1");
+      const status = document.getElementById("status");
+      const eventLog = document.getElementById("eventLog");
+
+      document.getElementById("prev").onclick = () => viewer1.previousPage();
+      document.getElementById("next").onclick = () => viewer1.nextPage();
+      document.getElementById("zoomIn").onclick = () => viewer1.zoomIn();
+      document.getElementById("zoomOut").onclick = () => viewer1.zoomOut();
+      document.getElementById("rotateCw").onclick = () => viewer1.rotateCW();
+      document.getElementById("rotateCcw").onclick = () => viewer1.rotateCCW();
+      document.getElementById("firstPage").onclick = () => viewer1.firstPage();
+      document.getElementById("lastPage").onclick = () => viewer1.lastPage();
+      document.getElementById("setZoom2").onclick = () => viewer1.setZoom("2");
+
+      // Demonstrate the element API, e.g. the `page` and `zoom` getters.
+      for (const name of ["pdfjs-pagechanging", "pdfjs-scalechanging"]) {
+        viewer1.addEventListener(name, evt => {
+          const { source } = evt.detail;
+          status.textContent = `viewer1: page ${source.pageNumber}/${viewer1.pagesCount}, ` + `zoom ${(viewer1.zoom * 100).toFixed(0)}%`;
+        });
+      }
+      const log = (name, evt) => {
+        eventLog.textContent += `${name} (${evt.detail?.pageNumber ?? ""})\n`;
+        eventLog.scrollTop = eventLog.scrollHeight;
+      };
+      for (const name of [
+        "pdfjs-documentloaded",
+        "pdfjs-pagesloaded",
+        "pdfjs-pagechanging",
+        "pdfjs-scalechanging",
+        "pdfjs-pagerendered",
+        "pdfjs-documentloadfailed",
+      ]) {
+        for (const el of document.querySelectorAll("pdf-viewer-element")) {
+          el.addEventListener(name, evt => log(`${el.id}: ${name}`, evt));
+        }
+      }
+
+      viewer1.ready.then(() => {
+        status.textContent = `viewer1 ready: page ${viewer1.page}/${viewer1.pagesCount}, ` + `zoom ${(viewer1.zoom * 100).toFixed(0)}%`;
+      });
+    </script>
+  </body>
+</html>

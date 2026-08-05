@@ -90,9 +90,23 @@ function getCompilerWorker() {
 function compileInWorker(mainContent, format = 'vector') {
   const id = ++compilerRequestId;
   return new Promise((resolve, reject) => {
-    compilerPending.set(id, { resolve, reject });
+    compilerPending.set(id, { resolve, reject, mainContent });
     getCompilerWorker().postMessage({ id, mainContent, format });
   });
+}
+
+function restartCompilerWorker(skipContent) {
+  if (!compilerWorker || compilerPending.size === 0) return;
+  for (const pending of compilerPending.values()) {
+    if (skipContent !== undefined && pending.mainContent === skipContent) return;
+  }
+  const old = compilerWorker;
+  compilerWorker = null;
+  for (const pending of compilerPending.values()) {
+    pending.resolve({ __cancelled: true });
+  }
+  compilerPending.clear();
+  old.terminate();
 }
 
 const DEFAULT_CONTENT = `// 欢迎使用 Typst 编辑器！
@@ -284,7 +298,6 @@ async function initTypst() {
   try {
     const base = location.origin + '/packages/';
     const accessModel = new MemoryAccessModel();
-    window.packageCache = new Map();
 
     const provider = TypstSnippet.fetchPackageBy(accessModel, (spec) => {
       const url = `${base}@${spec.namespace}/${spec.name}-${spec.version}.tar.gz`;
@@ -337,7 +350,6 @@ async function initTypst() {
 }
 
 let rendererPromise = null;
-let rendererInstance = null;
 
 function withModernWasmInit(mod) {
   return new Proxy(mod, {
@@ -361,7 +373,6 @@ function getRendererInstance() {
         getModule: () =>
           fetch('/typst-wasm/typst_ts_renderer_bg.wasm').then((r) => r.arrayBuffer()),
       });
-      rendererInstance = renderer;
       return renderer;
     })();
   }
@@ -370,7 +381,6 @@ function getRendererInstance() {
 
 function resetRenderer() {
   rendererPromise = null;
-  rendererInstance = null;
 }
 
 async function initEditor(monaco) {
@@ -664,6 +674,14 @@ async function openFile(filePath) {
     );
   }
 
+  clearTimeout(zoomTimer);
+  zoomAnchor = null;
+  zoomLevel = 100;
+  updateZoomLayout();
+  const previewEl = document.getElementById('preview');
+  if (previewEl) previewEl.scrollTop = 0;
+
+  restartCompilerWorker(content || '');
   doRender();
 }
 
@@ -841,73 +859,71 @@ async function drawPreview(pagesToRender, resetRendered = true) {
   const scale = zoomLevel / 100;
 
   try {
-  await renderer.runWithSession(async (session) => {
-    renderer.manipulateData({
-      renderSession: session,
-      action: 'reset',
-      data: cachedVectorData,
-    });
-    const pagesInfo = session.retrievePagesInfo();
-    if (pagesInfo.length === 0) throw new Error('No page found in session');
-
-    const canvases = getPageCanvasList();
-    const rebuilt = canvases.length !== pagesInfo.length;
-    if (rebuilt) {
-      contentEl.innerHTML = '';
-      for (let i = 0; i < pagesInfo.length; i++) {
-        const pageDiv = document.createElement('div');
-        pageDiv.className = 'typst-page canvas';
-        pageDiv.appendChild(document.createElement('canvas'));
-        contentEl.appendChild(pageDiv);
-      }
-      renderedPageIndices = new Set();
-    }
-
-    const pageCanvases = getPageCanvasList();
-    for (let i = 0; i < pagesInfo.length; i++) {
-      const canvas = pageCanvases[i];
-      canvas.dataset.ptW = pagesInfo[i].width;
-      canvas.dataset.ptH = pagesInfo[i].height;
-    }
-    if (rebuilt) {
-      performZoomResize(zoomLevel);
-    }
-
-    if (pagesToRender === undefined) {
-      const visible = getVisiblePageIndices();
-      pagesToRender = visible && visible.length > 0 ? visible : pagesInfo.map((_, i) => i);
-    }
-
-    for (const i of pagesToRender) {
-      if (i < 0 || i >= pagesInfo.length) continue;
-      if (renderedPageIndices.has(i)) continue;
-      const page = pagesInfo[i];
-      const canvas = pageCanvases[i];
-      const dstW = Math.max(1, Math.round(page.width * scale));
-      const dstH = Math.max(1, Math.round(page.height * scale));
-
-      canvas.width = dstW;
-      canvas.height = dstH;
-
-      const src = getHiddenCanvas();
-      src.width = Math.max(1, Math.round(page.width * scale * 2));
-      src.height = Math.max(1, Math.round(page.height * scale * 2));
-      const srcCtx = src.getContext('2d', { willReadFrequently: true });
-      if (!srcCtx) throw new Error('canvas context is null');
-
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      await renderer.renderCanvas({
+    await renderer.runWithSession(async (session) => {
+      renderer.manipulateData({
         renderSession: session,
-        canvas: srcCtx,
-        pageOffset: page.pageOffset,
-        pixelPerPt: src.width / page.width,
-        backgroundColor: '#ffffff',
+        action: 'reset',
+        data: cachedVectorData,
       });
+      const pagesInfo = session.retrievePagesInfo();
+      if (pagesInfo.length === 0) throw new Error('No page found in session');
 
-      bresenhamDownscale(srcCtx.getImageData(0, 0, src.width, src.height), canvas);
-      renderedPageIndices.add(i);
-    }
-  });
+      const canvases = getPageCanvasList();
+      const rebuilt = canvases.length !== pagesInfo.length;
+      if (rebuilt) {
+        contentEl.innerHTML = '';
+        for (let i = 0; i < pagesInfo.length; i++) {
+          const pageDiv = document.createElement('div');
+          pageDiv.className = 'typst-page canvas';
+          pageDiv.appendChild(document.createElement('canvas'));
+          contentEl.appendChild(pageDiv);
+        }
+        renderedPageIndices = new Set();
+      }
+
+      const pageCanvases = getPageCanvasList();
+      for (let i = 0; i < pagesInfo.length; i++) {
+        const canvas = pageCanvases[i];
+        canvas.dataset.ptW = pagesInfo[i].width;
+        canvas.dataset.ptH = pagesInfo[i].height;
+      }
+      performZoomResize(zoomLevel);
+
+      if (pagesToRender === undefined) {
+        const visible = getVisiblePageIndices();
+        pagesToRender = visible && visible.length > 0 ? visible : pagesInfo.map((_, i) => i);
+      }
+
+      for (const i of pagesToRender) {
+        if (i < 0 || i >= pagesInfo.length) continue;
+        if (renderedPageIndices.has(i)) continue;
+        const page = pagesInfo[i];
+        const canvas = pageCanvases[i];
+        const dstW = Math.max(1, Math.round(page.width * scale));
+        const dstH = Math.max(1, Math.round(page.height * scale));
+
+        canvas.width = dstW;
+        canvas.height = dstH;
+
+        const src = getHiddenCanvas();
+        src.width = Math.max(1, Math.round(page.width * scale * 2));
+        src.height = Math.max(1, Math.round(page.height * scale * 2));
+        const srcCtx = src.getContext('2d', { willReadFrequently: true });
+        if (!srcCtx) throw new Error('canvas context is null');
+
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        await renderer.renderCanvas({
+          renderSession: session,
+          canvas: srcCtx,
+          pageOffset: page.pageOffset,
+          pixelPerPt: src.width / page.width,
+          backgroundColor: '#ffffff',
+        });
+
+        bresenhamDownscale(srcCtx.getImageData(0, 0, src.width, src.height), canvas);
+        renderedPageIndices.add(i);
+      }
+    });
   } catch (err) {
     resetRenderer();
     throw err;
@@ -951,27 +967,13 @@ function scheduleZoomRender() {
   }, 100);
 }
 
-let zoomTaskStack = [];
-let zoomTaskRunning = false;
-
 function applyZoomResize(zoom = zoomLevel) {
-  zoomTaskStack.push(zoom);
-  drainZoomTaskStack();
-}
-
-function drainZoomTaskStack() {
-  if (zoomTaskRunning || zoomTaskStack.length === 0) return;
-  zoomTaskRunning = true;
-  const target = zoomTaskStack[zoomTaskStack.length - 1];
-  zoomTaskStack = [];
   captureZoomAnchor();
-  zoomLevel = target;
-  performZoomResize(target);
+  zoomLevel = zoom;
+  performZoomResize(zoom);
   scheduleZoomRender();
   updateZoomLayout(() => {
     restoreZoomScroll();
-    zoomTaskRunning = false;
-    drainZoomTaskStack();
   });
 }
 
@@ -1040,20 +1042,19 @@ function restoreZoomScroll() {
   const preview = document.getElementById('preview');
   if (!preview || !zoomAnchor) return;
   const factor = zoomLevel / zoomAnchor.zoom;
-  preview.scrollHeight;
-  preview.scrollWidth;
   preview.scrollTop = Math.max(0, Math.round(zoomAnchor.top * factor - zoomAnchor.clientHeight / 2));
   preview.scrollLeft = Math.max(0, Math.round(zoomAnchor.left * factor - zoomAnchor.clientWidth / 2));
   zoomAnchor = null;
 }
 
 function updateZoomLayout(done) {
-  const zoomLabel = document.getElementById('zoom-level');
-  if (zoomLabel) {
-    zoomLabel.textContent = `${zoomLevel}%`;
+  const zoomInput = document.querySelector('#zoom-level input');
+  if (zoomInput) {
+    zoomInput.value = zoomLevel;
+    zoomInput.classList.toggle('zoom-is-default', zoomLevel === 100);
   }
   if (done) {
-    requestAnimationFrame(done);
+    done();
   }
 }
 
@@ -1069,6 +1070,21 @@ function setupZoom() {
   document.getElementById('btn-zoom-reset').addEventListener('click', () => {
     applyZoomResize(100);
   });
+
+  const zoomInput = document.querySelector('#zoom-level input');
+  if (zoomInput) {
+    zoomInput.addEventListener('change', () => {
+      const val = parseInt(zoomInput.value, 10);
+      if (isNaN(val)) {
+        zoomInput.value = zoomLevel;
+        return;
+      }
+      applyZoomResize(Math.min(300, Math.max(25, val)));
+    });
+    zoomInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') zoomInput.blur();
+    });
+  }
 }
 
 function setupDivider() {
