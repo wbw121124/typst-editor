@@ -4,11 +4,26 @@ import { CompileFormatEnum } from '@myriaddreamin/typst.ts/dist/esm/compiler.mjs
 
 const MAIN_PATH = '/worker-main.typ';
 
+const vfs = new Map();
+const vfsDirty = new Set();
+let vfsNeedsReset = false;
+
 let current = null;
 let pending = null;
 
 self.addEventListener('message', (event) => {
   const req = event.data;
+  if (req.type === 'sync' || req.type === 'remove') {
+    if (req.type === 'sync') {
+      vfs.set(req.path, req.content);
+      vfsDirty.add(req.path);
+    } else if (vfs.delete(req.path)) {
+      vfsNeedsReset = true;
+    }
+    lastContent = null;
+    lastVectorData = null;
+    return;
+  }
   if (current) {
     if (req.format === 'vector') {
       current.superseded = true;
@@ -61,6 +76,7 @@ function postResult(req, result) {
 
 async function compilePdf(req) {
   const compiler = await getCompiler();
+  applyVfsToCompiler(compiler);
   compiler.addSource(MAIN_PATH, req.mainContent);
   const res = await compiler.compile({
     mainFilePath: MAIN_PATH,
@@ -70,19 +86,38 @@ async function compilePdf(req) {
   return res.result;
 }
 
+function applyVfsToCompiler(compiler, force = false) {
+  if (vfsNeedsReset || force) {
+    compiler.reset();
+    for (const [path, content] of vfs) {
+      compiler.addSource(path, content);
+    }
+    vfsNeedsReset = false;
+  } else {
+    for (const path of vfsDirty) {
+      const content = vfs.get(path);
+      if (content !== undefined) compiler.addSource(path, content);
+    }
+  }
+  vfsDirty.clear();
+}
+
 async function doCompile(req) {
   if (req.format === 'pdf') {
     try {
       return await compilePdf(req);
     } catch (err) {
       try {
-        (await getCompiler()).reset();
+        const compiler = await getCompiler();
+        compiler.reset();
+        applyVfsToCompiler(compiler, true);
       } catch (_) {}
       return compilePdf(req);
     }
   }
 
   const compiler = await getCompiler();
+  applyVfsToCompiler(compiler);
   compiler.addSource(MAIN_PATH, req.mainContent);
 
   if (req.format === 'vector') {

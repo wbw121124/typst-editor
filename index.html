@@ -32,8 +32,19 @@
         <div id="editor"></div>
       </div>
       <div id="divider"></div>
-      <div id="preview-container">
-        <div id="preview">
+      <div id="preview-container" class="pdf-mode">
+        <div id="preview-toolbar">
+          <div class="zoom-controls">
+            <button id="btn-zoom-out" title="缩小">-</button>
+            <span id="zoom-level"><input type="number" min="25" max="300" step="10" placeholder="100" value="100"
+                class="zoom-is-default"></span>
+            <button id="btn-zoom-in" title="放大">+</button>
+            <button id="btn-zoom-reset" title="重置缩放">重置</button>
+          </div>
+        </div>
+        <div id="preview" class="pdf-mode">
+          <div id="preview-content">
+          </div>
           <div id="pdf-viewer">
           </div>
         </div>
