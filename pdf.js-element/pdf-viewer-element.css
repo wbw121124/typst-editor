@@ -3196,7 +3196,7 @@ button.hasPopupMenu{
     rgb(30 30 30 / 0.9)
   );
   --sidebar-toolbar-bg-color:light-dark(rgb(245 246 247), #2d2d2d);
-  --toolbar-bg-color:light-dark(rgb(249 249 250), #3c3c3c);
+  --toolbar-bg-color:light-dark(rgb(249 249 250), #252526);
   --toolbar-border-color:light-dark(rgb(184 184 184), #454545);
   --toolbar-box-shadow:0 1px 0 var(--toolbar-border-color);
   --toolbar-border-bottom:none;
@@ -3214,7 +3214,7 @@ button.hasPopupMenu{
   --dropdown-btn-border:none;
   --separator-color:rgb(0 0 0 / 0.3);
   --field-color:light-dark(rgb(6 6 6), #ccc);
-  --field-bg-color:light-dark(rgb(255 255 255), #3c3c3c);
+  --field-bg-color:light-dark(rgb(255 255 255), #333);
   --field-border-color:light-dark(rgb(187 187 188), #3f3f3f);
   --doorhanger-bg-color:light-dark(rgb(255 255 255), #252526);
   --doorhanger-border-color:light-dark(rgb(12 12 13 / 0.2), #454545);

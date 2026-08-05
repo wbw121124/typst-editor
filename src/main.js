@@ -12,6 +12,7 @@ import htmlWorker from '../node_modules/monaco-editor/esm/vs/language/html/html.
 import tsWorker from '../node_modules/monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 import { initProject, syncFile, isReady as isWasmReady, destroyProject } from './typst-project.js';
 import { registerLspFeatures } from './lsp-adapter.js';
+import '../pdf.js-element/pdf-viewer-element.css';
 
 window.MonacoEnvironment = {
   getWorker(_, label) {
@@ -38,26 +39,16 @@ window.MonacoEnvironment = {
 let editor = null;
 let currentFile = null;
 let fileCache = {};
-let compileTimer = null;
 let typstReady = false;
-let zoomLevel = 100;
 let isDirty = false;
 let cachedVectorData = null;
-let renderChain = Promise.resolve();
-let zoomTimer = null;
-let lazyTimer = null;
-let zoomAnchor = null;
-let renderedPageIndices = new Set();
-let hiddenCanvas = null;
 let compilerWorker = null;
 let compilerRequestId = 0;
 const compilerPending = new Map();
-const LAZY_MARGIN = 200;
-
-function getHiddenCanvas() {
-  if (!hiddenCanvas) hiddenCanvas = document.createElement('canvas');
-  return hiddenCanvas;
-}
+let pdfViewerEl = null;
+let pdfObjectUrl = null;
+let pdfTimer = null;
+let pdfModulePromise = null;
 
 function getCompilerWorker() {
   if (!compilerWorker) {
@@ -429,8 +420,8 @@ async function initEditor(monaco) {
       );
     }
 
-    clearTimeout(compileTimer);
-    compileTimer = setTimeout(() => doRender(), 1000);
+    clearTimeout(pdfTimer);
+    schedulePdfRefresh();
   });
 
   return editor;
@@ -674,15 +665,8 @@ async function openFile(filePath) {
     );
   }
 
-  clearTimeout(zoomTimer);
-  zoomAnchor = null;
-  zoomLevel = 100;
-  updateZoomLayout();
-  const previewEl = document.getElementById('preview');
-  if (previewEl) previewEl.scrollTop = 0;
-
   restartCompilerWorker(content || '');
-  doRender();
+  refreshPdf();
 }
 
 async function saveCurrentFile() {
@@ -731,359 +715,6 @@ async function createNewFile() {
     openFile(filePath);
   } catch (err) {
     console.error('Create failed:', err);
-  }
-}
-
-function queueRender(task) {
-  renderChain = renderChain.then(task).catch((err) => {
-    console.error('[Render] failed:', err);
-  });
-  return renderChain;
-}
-
-function doRender() {
-  const contentEl = document.getElementById('preview-content');
-  const statusEl = document.getElementById('preview-status');
-  if (!typstReady || !editor) return;
-
-  const content = editor.getValue();
-  queueRender(async () => {
-    try {
-      const vectorData = await compileInWorker(content);
-      if (!vectorData || vectorData.__cancelled) return;
-      cachedVectorData = vectorData;
-      await drawPreview();
-      statusEl.textContent = `就绪 - ${currentFile || '未命名'}`;
-    } catch (err) {
-      const msg = err?.message || String(err);
-      statusEl.textContent = '错误: ' + msg;
-      contentEl.innerHTML = `<div class="error-message">${escapeHtml(msg)}</div>`;
-    }
-  });
-}
-
-function getPageCanvasList() {
-  return Array.from(document.querySelectorAll('#preview-content > .typst-page.canvas > canvas'));
-}
-
-function getVisiblePageIndices() {
-  const preview = document.getElementById('preview');
-  const contentEl = document.getElementById('preview-content');
-  if (!preview || !contentEl) return null;
-  const previewRect = preview.getBoundingClientRect();
-  const viewTop = previewRect.top;
-  const viewBottom = previewRect.bottom;
-  const pages = contentEl.querySelectorAll('.typst-page.canvas');
-  const indices = [];
-  for (let i = 0; i < pages.length; i++) {
-    const rect = pages[i].getBoundingClientRect();
-    if (rect.bottom >= viewTop - LAZY_MARGIN && rect.top <= viewBottom + LAZY_MARGIN) {
-      indices.push(i);
-    }
-  }
-  return indices;
-}
-
-function bresenhamDownscale(src, canvas) {
-  const sD = src.data;
-  const sw = src.width;
-  const sh = src.height;
-  const dw = canvas.width;
-  const dh = canvas.height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  const img = ctx.createImageData(dw, dh);
-  const dD = img.data;
-  const stepX = sw / dw;
-  const stepY = sh / dh;
-
-  const sx0s = new Int32Array(dw);
-  const sx1s = new Int32Array(dw);
-  let sx = 0;
-  for (let x = 0; x < dw; x++) {
-    sx0s[x] = Math.floor(sx);
-    sx1s[x] = Math.min(sw - 1, Math.floor(sx + stepX));
-    sx += stepX;
-  }
-
-  let sy = 0;
-  for (let y = 0; y < dh; y++) {
-    const sy0 = Math.floor(sy);
-    const sy1 = Math.min(sh - 1, Math.floor(sy + stepY));
-    const dRow = y * dw;
-    for (let x = 0; x < dw; x++) {
-      const sx0 = sx0s[x];
-      const sx1 = sx1s[x];
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      for (let j = sy0; j <= sy1; j++) {
-        let o = (j * sw + sx0) * 4;
-        for (let i = sx0; i <= sx1; i++) {
-          r += sD[o];
-          g += sD[o + 1];
-          b += sD[o + 2];
-          a += sD[o + 3];
-          o += 4;
-        }
-      }
-      const n = (sx1 - sx0 + 1) * (sy1 - sy0 + 1);
-      const o = (dRow + x) * 4;
-      dD[o] = r / n;
-      dD[o + 1] = g / n;
-      dD[o + 2] = b / n;
-      dD[o + 3] = a / n;
-    }
-    sy += stepY;
-  }
-
-  ctx.putImageData(img, 0, 0);
-}
-
-async function drawPreview(pagesToRender, resetRendered = true) {
-  const contentEl = document.getElementById('preview-content');
-  if (!contentEl || !cachedVectorData) return;
-
-  if (resetRendered) renderedPageIndices = new Set();
-
-  let renderer;
-  try {
-    renderer = await getRendererInstance();
-  } catch (err) {
-    resetRenderer();
-    throw new Error('renderer not ready: ' + (err.message || err));
-  }
-  if (!renderer) throw new Error('renderer not ready');
-  const scale = zoomLevel / 100;
-
-  try {
-    await renderer.runWithSession(async (session) => {
-      renderer.manipulateData({
-        renderSession: session,
-        action: 'reset',
-        data: cachedVectorData,
-      });
-      const pagesInfo = session.retrievePagesInfo();
-      if (pagesInfo.length === 0) throw new Error('No page found in session');
-
-      const canvases = getPageCanvasList();
-      const rebuilt = canvases.length !== pagesInfo.length;
-      if (rebuilt) {
-        contentEl.innerHTML = '';
-        for (let i = 0; i < pagesInfo.length; i++) {
-          const pageDiv = document.createElement('div');
-          pageDiv.className = 'typst-page canvas';
-          pageDiv.appendChild(document.createElement('canvas'));
-          contentEl.appendChild(pageDiv);
-        }
-        renderedPageIndices = new Set();
-      }
-
-      const pageCanvases = getPageCanvasList();
-      for (let i = 0; i < pagesInfo.length; i++) {
-        const canvas = pageCanvases[i];
-        canvas.dataset.ptW = pagesInfo[i].width;
-        canvas.dataset.ptH = pagesInfo[i].height;
-      }
-      performZoomResize(zoomLevel);
-
-      if (pagesToRender === undefined) {
-        const visible = getVisiblePageIndices();
-        pagesToRender = visible && visible.length > 0 ? visible : pagesInfo.map((_, i) => i);
-      }
-
-      for (const i of pagesToRender) {
-        if (i < 0 || i >= pagesInfo.length) continue;
-        if (renderedPageIndices.has(i)) continue;
-        const page = pagesInfo[i];
-        const canvas = pageCanvases[i];
-        const dstW = Math.max(1, Math.round(page.width * scale));
-        const dstH = Math.max(1, Math.round(page.height * scale));
-
-        canvas.width = dstW;
-        canvas.height = dstH;
-
-        const src = getHiddenCanvas();
-        src.width = Math.max(1, Math.round(page.width * scale * 2));
-        src.height = Math.max(1, Math.round(page.height * scale * 2));
-        const srcCtx = src.getContext('2d', { willReadFrequently: true });
-        if (!srcCtx) throw new Error('canvas context is null');
-
-        await new Promise((resolve) => requestAnimationFrame(resolve));
-        await renderer.renderCanvas({
-          renderSession: session,
-          canvas: srcCtx,
-          pageOffset: page.pageOffset,
-          pixelPerPt: src.width / page.width,
-          backgroundColor: '#ffffff',
-        });
-
-        bresenhamDownscale(srcCtx.getImageData(0, 0, src.width, src.height), canvas);
-        renderedPageIndices.add(i);
-      }
-    });
-  } catch (err) {
-    resetRenderer();
-    throw err;
-  }
-
-  updateZoomLayout();
-}
-
-function scheduleLazyRender() {
-  clearTimeout(lazyTimer);
-  lazyTimer = setTimeout(() => {
-    if (!cachedVectorData) return;
-    const visible = getVisiblePageIndices();
-    if (!visible || visible.length === 0) return;
-    const pending = visible.filter((i) => !renderedPageIndices.has(i));
-    if (pending.length > 0) {
-      queueRender(() => drawPreview(pending, false));
-    }
-  }, 120);
-}
-
-function setupLazyRender() {
-  const preview = document.getElementById('preview');
-  if (!preview) return;
-  preview.addEventListener(
-    'scroll',
-    () => {
-      if (!cachedVectorData) return;
-      scheduleLazyRender();
-    },
-    { passive: true }
-  );
-}
-
-function scheduleZoomRender() {
-  clearTimeout(zoomTimer);
-  zoomTimer = setTimeout(() => {
-    queueRender(() => {
-      if (cachedVectorData) return drawPreview();
-    });
-  }, 100);
-}
-
-function applyZoomResize(zoom = zoomLevel) {
-  captureZoomAnchor();
-  zoomLevel = zoom;
-  performZoomResize(zoom);
-  scheduleZoomRender();
-  updateZoomLayout(() => {
-    restoreZoomScroll();
-  });
-}
-
-function performZoomResize(zoom) {
-  const scale = zoom / 100;
-  const previewEl = document.getElementById('preview');
-  if (previewEl) {
-    previewEl.style.setProperty('--preview-pad', `${20 * scale}px`);
-    previewEl.style.setProperty('--page-gap', `${25 * scale}px`);
-  }
-  const canvases = getPageCanvasList();
-  for (const canvas of canvases) {
-    const ptW = parseFloat(canvas.dataset.ptW);
-    const ptH = parseFloat(canvas.dataset.ptH);
-    if (!ptW || !ptH) continue;
-    const cssW = Math.max(1, Math.round(ptW * scale));
-    const cssH = Math.max(1, Math.round(ptH * scale));
-    canvas.style.width = `${cssW}px`;
-    canvas.style.height = `${cssH}px`;
-    canvas.dataset.cssW = cssW;
-    canvas.dataset.cssH = cssH;
-  }
-}
-
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function captureZoomAnchor() {
-  const preview = document.getElementById('preview');
-  if (!preview) return;
-  const rect = preview.getBoundingClientRect();
-  const cx = rect.left + preview.clientWidth / 2;
-  const cy = rect.top + preview.clientHeight / 2;
-  const canvases = getPageCanvasList();
-  let top = null;
-  let left = null;
-  for (const canvas of canvases) {
-    const r = canvas.getBoundingClientRect();
-    if (top === null && r.bottom >= cy) {
-      top = r.top - rect.top + preview.scrollTop + Math.max(0, cy - r.top);
-    }
-    if (left === null && r.left <= cx && r.right >= cx) {
-      left = r.left - rect.left + preview.scrollLeft + (cx - r.left);
-    }
-    if (top !== null && left !== null) break;
-  }
-  if (canvases.length) {
-    const last = canvases[canvases.length - 1].getBoundingClientRect();
-    if (top === null) top = last.bottom - rect.top + preview.scrollTop;
-    if (left === null) left = last.left - rect.left + preview.scrollLeft;
-  }
-  if (top === null) top = preview.scrollTop + preview.clientHeight / 2;
-  if (left === null) left = preview.scrollLeft + preview.clientWidth / 2;
-  zoomAnchor = {
-    zoom: zoomLevel,
-    top,
-    left,
-    clientWidth: preview.clientWidth,
-    clientHeight: preview.clientHeight,
-  };
-}
-
-function restoreZoomScroll() {
-  const preview = document.getElementById('preview');
-  if (!preview || !zoomAnchor) return;
-  const factor = zoomLevel / zoomAnchor.zoom;
-  preview.scrollTop = Math.max(0, Math.round(zoomAnchor.top * factor - zoomAnchor.clientHeight / 2));
-  preview.scrollLeft = Math.max(0, Math.round(zoomAnchor.left * factor - zoomAnchor.clientWidth / 2));
-  zoomAnchor = null;
-}
-
-function updateZoomLayout(done) {
-  const zoomInput = document.querySelector('#zoom-level input');
-  if (zoomInput) {
-    zoomInput.value = zoomLevel;
-    zoomInput.classList.toggle('zoom-is-default', zoomLevel === 100);
-  }
-  if (done) {
-    done();
-  }
-}
-
-function setupZoom() {
-  document.getElementById('btn-zoom-in').addEventListener('click', () => {
-    applyZoomResize(Math.min(300, zoomLevel + 10));
-  });
-
-  document.getElementById('btn-zoom-out').addEventListener('click', () => {
-    applyZoomResize(Math.max(25, zoomLevel - 10));
-  });
-
-  document.getElementById('btn-zoom-reset').addEventListener('click', () => {
-    applyZoomResize(100);
-  });
-
-  const zoomInput = document.querySelector('#zoom-level input');
-  if (zoomInput) {
-    zoomInput.addEventListener('change', () => {
-      const val = parseInt(zoomInput.value, 10);
-      if (isNaN(val)) {
-        zoomInput.value = zoomLevel;
-        return;
-      }
-      applyZoomResize(Math.min(300, Math.max(25, val)));
-    });
-    zoomInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') zoomInput.blur();
-    });
   }
 }
 
@@ -1226,14 +857,80 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
+function suppressPdfJsWarnings() {
+  const origWarn = console.warn;
+  console.warn = (...args) => {
+    if (String(args[0] ?? '').includes('may override manually set AppOptions')) return;
+    origWarn(...args);
+  };
+}
+
+async function getPdfViewerElement() {
+  if (pdfViewerEl) return pdfViewerEl;
+  suppressPdfJsWarnings();
+  pdfModulePromise ||= import('../pdf.js-element/pdf-viewer-element.mjs');
+  await pdfModulePromise;
+  const container = document.getElementById('pdf-viewer');
+  const el = document.createElement('pdf-viewer-element');
+  el.setAttribute('lang', 'zh-CN');
+  el.setAttribute('worker-src', '/pdf.js-element/pdf.worker.mjs');
+  el.setAttribute('c-map-url', '/pdf.js-element/cmaps/');
+  el.setAttribute('standard-font-data-url', '/pdf.js-element/standard_fonts/');
+  el.setAttribute('wasm-url', '/pdf.js-element/wasm/');
+  el.setAttribute('sandbox-bundle-src', '/pdf.js-element/pdf.sandbox.mjs');
+  el.setAttribute('l10n-url', '/pdf.js-element/locale/');
+  container.appendChild(el);
+  pdfViewerEl = el;
+  if (!pdfViewerEl.__listeners) {
+    pdfViewerEl.__listeners = true;
+    pdfViewerEl.addEventListener('pdfjs-documentloaded', () => {
+      const statusEl = document.getElementById('preview-status');
+      statusEl.textContent = `PDF - ${currentFile || '未命名'}`;
+    });
+    pdfViewerEl.addEventListener('pdfjs-documentloadfailed', () => {
+      const statusEl = document.getElementById('preview-status');
+      statusEl.textContent = 'PDF 加载失败';
+    });
+  }
+  return pdfViewerEl;
+}
+
+function revokePdfUrl() {
+  if (pdfObjectUrl) {
+    URL.revokeObjectURL(pdfObjectUrl);
+    pdfObjectUrl = null;
+  }
+}
+
+async function refreshPdf() {
+  if (!editor) return;
+  const statusEl = document.getElementById('preview-status');
+  statusEl.textContent = '正在编译 PDF...';
+  try {
+    const pdfData = await compileInWorker(editor.getValue(), 'pdf');
+    if (!pdfData || pdfData.__cancelled) return;
+    revokePdfUrl();
+    const blob = new Blob([pdfData], { type: 'application/pdf' });
+    pdfObjectUrl = URL.createObjectURL(blob);
+    const viewer = await getPdfViewerElement();
+    await viewer.open(pdfObjectUrl);
+  } catch (err) {
+    const msg = err?.message || String(err);
+    statusEl.textContent = 'PDF 错误: ' + msg;
+  }
+}
+
+function schedulePdfRefresh() {
+  clearTimeout(pdfTimer);
+  pdfTimer = setTimeout(() => refreshPdf(), 1000);
+}
+
 async function main() {
   window.monaco = monaco;
 
   await initEditor(monaco);
   setupDivider();
   setupFontSize();
-  setupZoom();
-  setupLazyRender();
 
   registerLspFeatures(monaco, editor);
 
@@ -1257,7 +954,7 @@ async function main() {
     }
     if ((e.ctrlKey || e.metaKey) && e.altKey && e.key === 'c') {
       e.preventDefault();
-      doRender();
+      refreshPdf();
     }
   });
 
@@ -1281,6 +978,7 @@ async function main() {
       e.preventDefault();
       e.returnValue = '';
     }
+    revokePdfUrl();
     destroyProject();
   });
 }

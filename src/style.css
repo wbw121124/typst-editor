@@ -269,142 +269,10 @@ body {
   overflow: hidden;
 }
 
-#preview-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
-  font-size: 12px;
-  color: #858585;
-  background: #252526;
-  flex-shrink: 0;
-  border-radius: var(--border-radius);
-  border-bottom: 1px solid #333;
-}
-
-.zoom-controls {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-}
-
-.zoom-controls button {
-  width: 24px;
-  height: 24px;
-  border: 1px solid #3c3c3c;
-  border-radius: 3px;
-  background: #3c3c3c;
-  color: #cccccc;
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  line-height: 1;
-  transition: background 0.15s;
-}
-
-.zoom-controls button:hover {
-  background: #45494e;
-}
-
-.zoom-controls button:active {
-  background: #2d2d2d;
-}
-
-#zoom-level {
-  min-width: 40px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-  -webkit-user-select: none;
-  user-select: none;
-  color: #858585;
-  font-size: 11px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  position: relative;
-}
-
-#zoom-level input[type='number'] {
-  -moz-appearance: textfield;
-  appearance: textfield;
-}
-
-#zoom-level input.zoom-is-default {
-  color: #007acc;
-  font-weight: 600;
-}
-
-#zoom-level input {
-  height: 24px;
-  padding-right: 1em;
-  text-align: center;
-  background: #2d2d2d;
-  border: 1px solid #3c3c3c;
-  border-radius: 3px;
-  color: #cccccc;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  -webkit-user-select: text;
-  user-select: text;
-  outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-#zoom-level input {
-  width: 4em;
-}
-
-#zoom-level::after {
-  content: '%';
-  position: absolute;
-  right: 8px;
-  top: calc(50% - 1px);
-  transform: translateY(-50%);
-  color: #858585;
-  font-size: 12px;
-  pointer-events: none;
-  line-height: 1;
-}
-
-#zoom-level input:hover {
-  border-color: #45494e;
-}
-
-#zoom-level input:focus {
-  border-color: #007acc;
-  box-shadow: 0 0 0 1px #007acc inset;
-}
-
-#zoom-level input::selection {
-  background: #007acc;
-}
-
-#zoom-level input::-webkit-outer-spin-button,
-#zoom-level input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-#zoom-level input[type='number'] {
-  -moz-appearance: textfield;
-  appearance: textfield;
-}
-
-#btn-zoom-reset {
-  width: auto !important;
-  padding: 0 8px !important;
-  font-size: 11px !important;
-}
-
 #preview {
   border-radius: var(--border-radius);
-  border-top: 1px solid #333;
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
   background: #1e1e1e;
   color: #d4d4d4;
   display: flex;
@@ -415,30 +283,16 @@ body {
   flex-wrap: nowrap;
 }
 
-#preview-content {
-  display: inline-block;
-  padding: var(--preview-pad, 20px);
-  width: max-content;
-  height: max-content;
-  margin: auto;
+#pdf-viewer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 
-#preview-content>svg {
-  background-color: white;
+#pdf-viewer pdf-viewer-element {
   width: 100%;
-}
-
-#preview-content .typst-page.canvas canvas {
+  height: 100%;
   display: block;
-  background: #fff;
-}
-
-.error-message {
-  color: #f44747;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-  font-size: 13px;
-  white-space: pre-wrap;
-  padding: 10px;
 }
 
 @media (max-width: 1000px) {
@@ -509,94 +363,6 @@ body {
     padding: 2px 4px;
     font-size: 11px;
   }
-
-  #preview {
-    padding: 10px;
-  }
-
-  #preview-toolbar {
-    padding: 4px 8px;
-    font-size: 11px;
-  }
-
-  .zoom-controls button {
-    width: 22px;
-    height: 22px;
-    font-size: 12px;
-  }
-}
-
-.typst-html-semantics {
-  position: absolute;
-  z-index: 2;
-  color: transparent;
-  font-family: monospace;
-  white-space: pre;
-}
-
-.typst-html-semantics span {
-  color: transparent;
-  font-family: monospace;
-  transform-origin: left top;
-  position: absolute;
-  display: inline-block;
-  left: 0;
-  top: 0;
-}
-
-.typst-content-hint {
-  position: absolute;
-  display: inline-block;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-}
-
-.typst-html-semantics a {
-  position: absolute;
-  display: inline-block;
-}
-
-/* set transparent itself */
-.typst-content-group {
-  pointer-events: visible;
-}
-
-.typst-html-semantics span::-moz-selection {
-  color: transparent;
-  background: #7db9dea0;
-}
-
-.typst-html-semantics span::selection {
-  color: transparent;
-  background: #7db9dea0;
-}
-
-.typst-html-semantics *::-moz-selection {
-  color: transparent;
-  background: transparent;
-}
-
-.typst-html-semantics *::selection {
-  color: transparent;
-  background: transparent;
-}
-
-.typst-content-fallback {
-  color: transparent;
-  background: transparent;
-}
-
-.pseudo-link,
-.typst-text {
-  pointer-events: none;
-}
-
-.typst-page {
-  margin-bottom: var(--page-gap, 25px);
-  box-shadow: black 1px 1px 10px;
-  width: max-content;
-  height: max-content;
 }
 
 /* Monaco Context Menu */

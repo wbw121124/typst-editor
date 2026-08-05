@@ -21,8 +21,8 @@
  */
 
 /**
- * pdfjsVersion = 6.3.38
- * pdfjsBuild = b4ba666b0
+ * pdfjsVersion = 6.3.40
+ * pdfjsBuild = 97b694c20
  */
 
 ;// ./src/pdf.sandbox.external.js
