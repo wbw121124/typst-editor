@@ -52,6 +52,7 @@ async function pump() {
         id: req.id,
         ok: false,
         error: detail || 'unknown',
+        diagnostics: lastDiagnostics || [],
       });
     }
   } finally {
@@ -181,6 +182,8 @@ $typst.use(
     '/fonts/InriaSerif-BoldItalic.ttf',
     '/fonts/Roboto-Regular.ttf',
     '/fonts/JetBrainsMono-Regular.ttf',
+    '/Fira_Code_v6.2/ttf/FiraCode-Regular.ttf',
+    '/Fira_Code_v6.2/ttf/FiraCode-Bold.ttf',
   ]),
   TypstSnippet.withAccessModel(accessModel),
   provider,

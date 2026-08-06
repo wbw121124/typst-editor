@@ -21,8 +21,8 @@
  */
 
 /**
- * pdfjsVersion = 6.3.43
- * pdfjsBuild = a27db6e2a
+ * pdfjsVersion = 6.3.49
+ * pdfjsBuild = 2680f4527
  */
 
 ;// ./web/app_options.js
@@ -1620,6 +1620,68 @@ const makeSet = () => new Set();
 if (typeof Iterator.prototype.join !== "function") {
   Iterator.prototype.join = function (separator) {
     return [...this].join(separator);
+  };
+}
+if (typeof Map.prototype.getOrInsert !== "function") {
+  Map.prototype.getOrInsert = function (key, value) {
+    if (this.has(key)) {
+      return this.get(key);
+    }
+    this.set(key, value);
+    return value;
+  };
+}
+if (typeof Map.prototype.getOrInsertComputed !== "function") {
+  Map.prototype.getOrInsertComputed = function (key, callbackfn) {
+    if (typeof callbackfn !== "function") {
+      throw new TypeError("Map.prototype.getOrInsertComputed requires a callback function.");
+    }
+    if (this.has(key)) {
+      return this.get(key);
+    }
+    const value = callbackfn(key);
+    this.set(key, value);
+    return value;
+  };
+}
+if (typeof Math.sumPrecise !== "function") {
+  Math.sumPrecise = function (items) {
+    let sum = 0;
+    let minusZero = true;
+    let expansion = [];
+    for (const n of items) {
+      if (typeof n !== "number") {
+        throw new TypeError("Math.sumPrecise: all values must be numbers.");
+      }
+      if (Number.isNaN(n)) {
+        return NaN;
+      }
+      if (n === 0) {
+        minusZero = Object.is(n, -0);
+        continue;
+      }
+      const out = [];
+      let q = n;
+      for (let i = 0; i < expansion.length; i++) {
+        const a = expansion[i];
+        const s = a + q;
+        const bv = s - a;
+        const err = a - (s - bv) + (q - bv);
+        q = s;
+        if (err !== 0) {
+          out.push(err);
+        }
+      }
+      out.push(q);
+      expansion = out;
+    }
+    for (let i = expansion.length - 1; i >= 0; i--) {
+      sum += expansion[i];
+    }
+    if (sum === 0) {
+      return minusZero ? -0 : 0;
+    }
+    return sum;
   };
 }
 
@@ -11290,7 +11352,7 @@ function getDocument(src = {}) {
   }
   const docParams = {
     docId,
-    apiVersion: "6.3.43",
+    apiVersion: "6.3.49",
     data,
     password,
     disableAutoFetch,
@@ -12942,8 +13004,8 @@ class InternalRenderTask {
     }
   }
 }
-const version = "6.3.43";
-const build = "a27db6e2a";
+const version = "6.3.49";
+const build = "2680f4527";
 
 ;// ./src/shared/scripting_utils.js
 
@@ -17557,12 +17619,12 @@ globalThis.pdfjsLib = {
   updateUrlHash: updateUrlHash,
   Util: Util,
   VerbosityLevel: VerbosityLevel,
-  version: (/* inlined export .version */"6.3.43"),
+  version: (/* inlined export .version */"6.3.49"),
   XfaLayer: XfaLayer
 };
 
 ;// ./web/internal_evt.js
-const INTERNAL_EVT = "59155fc7-5258-4273-960c-f0ba54687d50";
+const INTERNAL_EVT = "a45f97f7-5c4b-49a0-a6ca-d23750ab6af4";
 const internalOpt = Object.freeze({
   internal: INTERNAL_EVT
 });
@@ -26791,9 +26853,9 @@ class PDFViewer {
   #scaleTimeoutId = null;
   #textLayerMode = TextLayerMode.ENABLE;
   constructor(options) {
-    const viewerVersion = "6.3.43";
-    if ((/* inlined export .version */"6.3.43") !== viewerVersion) {
-      throw new Error(`The API version "${(/* inlined export .version */"6.3.43")}" does not match the Viewer version "${viewerVersion}".`);
+    const viewerVersion = "6.3.49";
+    if ((/* inlined export .version */"6.3.49") !== viewerVersion) {
+      throw new Error(`The API version "${(/* inlined export .version */"6.3.49")}" does not match the Viewer version "${viewerVersion}".`);
     }
     this.container = options.container;
     this.viewer = options.viewer || options.container.firstElementChild;
@@ -29100,6 +29162,12 @@ const SIDEBAR_RESIZING_CLASS = "viewsManagerResizing";
 const UI_NOTIFICATION_CLASS = "pdfSidebarNotification";
 class ViewsManager extends Sidebar {
   static #l10nDescription = null;
+  static #viewNames = {
+    [SidebarView.THUMBS]: "thumbnails",
+    [SidebarView.OUTLINE]: "outlines",
+    [SidebarView.ATTACHMENTS]: "attachments",
+    [SidebarView.LAYERS]: "layers"
+  };
   #hasAnimations = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   constructor({
     elements: {
@@ -29149,6 +29217,8 @@ class ViewsManager extends Sidebar {
     this.layersView = layersView;
     this.viewsManagerCurrentOutlineButton = viewsManagerCurrentOutlineButton;
     this.viewsManagerHeaderLabel = viewsManagerHeaderLabel;
+    this.viewsManagerSelectorButton = viewsManagerSelectorButton;
+    this.viewsManagerSelectorButton.dataset.view = ViewsManager.#viewNames[this.active];
     this.eventBus = eventBus;
     this.menu = new Menu(viewsManagerSelectorOptions, viewsManagerSelectorButton, [thumbnailButton, outlineButton, attachmentsButton, layersButton]);
     ViewsManager.#l10nDescription ||= Object.freeze({
@@ -29227,6 +29297,7 @@ class ViewsManager extends Sidebar {
     this.viewsManagerCurrentOutlineButton.hidden = view !== SidebarView.OUTLINE;
     this.viewsManagerHeaderLabel.setAttribute("data-l10n-id", ViewsManager.#l10nDescription[titleL10nId] || "");
     this.active = view;
+    this.viewsManagerSelectorButton.dataset.view = ViewsManager.#viewNames[view];
     toggleSelectedBtn(this.thumbnailButton, view === SidebarView.THUMBS, this.thumbnailsView);
     toggleSelectedBtn(this.outlineButton, view === SidebarView.OUTLINE, this.outlinesView);
     toggleSelectedBtn(this.attachmentsButton, view === SidebarView.ATTACHMENTS, this.attachmentsView);
@@ -30092,7 +30163,7 @@ function createPDFViewerApplication(options = {}) {
     },
     async _otherError(key, moreInfo = null) {
       const message = await this.l10n.get(key);
-      const moreInfoText = [`PDF.js v${(/* inlined export .version */"6.3.43") || "?"} (build: ${build || "?"})`];
+      const moreInfoText = [`PDF.js v${(/* inlined export .version */"6.3.49") || "?"} (build: ${build || "?"})`];
       if (moreInfo) {
         moreInfoText.push(`Message: ${moreInfo.message}`);
         if (moreInfo.stack) {
@@ -30321,7 +30392,7 @@ function createPDFViewerApplication(options = {}) {
       this.metadata = metadata;
       this._contentDispositionFilename ??= contentDispositionFilename;
       this._contentLength ??= contentLength;
-      console.log(`PDF ${pdfDocument.fingerprints[0]} [${info.PDFFormatVersion} ` + `${(metadata?.get("pdf:producer") || info.Producer || "-").trim()} / ` + `${(metadata?.get("xmp:creatortool") || info.Creator || "-").trim()}` + `] (PDF.js: ${(/* inlined export .version */"6.3.43") || "?"} [${build || "?"}])`);
+      console.log(`PDF ${pdfDocument.fingerprints[0]} [${info.PDFFormatVersion} ` + `${(metadata?.get("pdf:producer") || info.Producer || "-").trim()} / ` + `${(metadata?.get("xmp:creatortool") || info.Creator || "-").trim()}` + `] (PDF.js: ${(/* inlined export .version */"6.3.49") || "?"} [${build || "?"}])`);
       const pdfTitle = this._docTitle;
       if (pdfTitle) {
         this.setTitle(`${pdfTitle} - ${this._contentDispositionFilename || this._title}`);

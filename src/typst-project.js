@@ -37,6 +37,8 @@ async function loadFonts(proj) {
     '/fonts/InriaSerif-BoldItalic.ttf',
     '/fonts/Roboto-Regular.ttf',
     '/fonts/JetBrainsMono-Regular.ttf',
+    '/Fira_Code_v6.2/ttf/FiraCode-Regular.ttf',
+    '/Fira_Code_v6.2/ttf/FiraCode-Bold.ttf',
   ];
 
   for (const fontPath of fontPaths) {

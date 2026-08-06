@@ -14,6 +14,14 @@ if (!fs.existsSync(WORKSPACE)) {
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
+function resolveWorkspacePath(filePath) {
+  if (typeof filePath !== 'string' || !filePath) return null;
+  const full = path.resolve(WORKSPACE, filePath);
+  const rel = path.relative(WORKSPACE, full);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return full;
+}
+
 app.get('/api/files', (req, res) => {
   try {
     const files = walkDir(WORKSPACE, '');
@@ -26,8 +34,8 @@ app.get('/api/files', (req, res) => {
 app.get('/api/file', (req, res) => {
   const filePath = req.query.path;
   if (!filePath) return res.status(400).json({ error: 'path required' });
-  const full = path.join(WORKSPACE, filePath);
-  if (!full.startsWith(WORKSPACE)) return res.status(403).json({ error: 'forbidden' });
+  const full = resolveWorkspacePath(filePath);
+  if (!full) return res.status(403).json({ error: 'forbidden' });
   try {
     const content = fs.readFileSync(full, 'utf-8');
     res.json({ content, path: filePath });
@@ -39,8 +47,8 @@ app.get('/api/file', (req, res) => {
 app.put('/api/file', (req, res) => {
   const { filePath, content } = req.body;
   if (!filePath) return res.status(400).json({ error: 'filePath required' });
-  const full = path.join(WORKSPACE, filePath);
-  if (!full.startsWith(WORKSPACE)) return res.status(403).json({ error: 'forbidden' });
+  const full = resolveWorkspacePath(filePath);
+  if (!full) return res.status(403).json({ error: 'forbidden' });
   try {
     const dir = path.dirname(full);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -55,8 +63,8 @@ app.put('/api/file', (req, res) => {
 app.delete('/api/file', (req, res) => {
   const filePath = req.query.path;
   if (!filePath) return res.status(400).json({ error: 'path required' });
-  const full = path.join(WORKSPACE, filePath);
-  if (!full.startsWith(WORKSPACE)) return res.status(403).json({ error: 'forbidden' });
+  const full = resolveWorkspacePath(filePath);
+  if (!full) return res.status(403).json({ error: 'forbidden' });
   try {
     if (fs.existsSync(full)) fs.unlinkSync(full);
     console.log(`[deleted] ${filePath}`);

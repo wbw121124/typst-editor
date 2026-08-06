@@ -7,7 +7,7 @@
     "dev": "node server.js",
     "build": "vite build",
     "preview": "vite preview",
-    "install": "pwsh -NoProfile -Command \"& './download_all_versions.ps1'\""
+    "install": "node script/install.cjs"
   },
   "dependencies": {
     "@monaco-editor/loader": "^1.7.0",

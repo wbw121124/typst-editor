@@ -12,11 +12,11 @@
 
 = Hello, Typst!
 
-你好！
+你好！#link("https://github.com/wbw121124/")[wbw121124]
 
 This is a live preview editor for *Typst* documents.
 
-== Featuress
+== Features
 
 - File management in `./typst/` workspace
 - Live preview as you type
@@ -56,6 +56,48 @@ Plancks constant is roughly #Js[6.626e-34].
   [Bob], [25], [London],
   [Charlie], [35], [Tokyo],
 )
+
+== Fira Code 代码块示例
+
+#show raw: set text(font: "Fira Code")
+
+#rect(```rust
+fn main() {
+    let msg = "Hello, Typst!";
+    println!("{msg}");
+}
+```,stroke: 0.5pt,radius: 5pt)
+
+#let code-block(content) = {
+  // 阴影层
+  place(
+    dx: 3pt, dy: 3pt,
+    rect(
+      content,
+      fill: luma(200), // 阴影颜色
+      stroke: none,
+      radius: 5pt,
+    )
+  )
+  // 内容层
+  rect(
+    content,
+    stroke: 0.5pt,
+    radius: 5pt,
+    fill: white,
+  )
+}
+
+#show raw: set text(font: "Fira Code")
+
+#code-block(```rust
+fn main() {
+    let msg = "Hello, Typst!";
+    println!("{msg}");
+}
+```)
+
+Fira Code 支持代码连字（ligatures），如行内代码 `->`、`=>`、`!=` 和 `fn(x) => x * 2`。
 
 
 == 有机化学示例

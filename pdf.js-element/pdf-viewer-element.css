@@ -743,13 +743,22 @@
   }
 
   ::-moz-selection{
-    background:color-mix(in srgb, AccentColor, transparent 50%) !important;
+    background:rgb(0 120 215 / 0.5) !important;
     color:transparent;
   }
 
   ::selection{
-    background:color-mix(in srgb, AccentColor, transparent 50%) !important;
+    background:rgb(0 120 215 / 0.5) !important;
     color:transparent;
+  }
+
+  @supports (background: color-mix(in srgb, AccentColor, transparent 50%)){
+    ::-moz-selection{
+      background:color-mix(in srgb, AccentColor, transparent 50%) !important;
+    }
+    ::selection{
+      background:color-mix(in srgb, AccentColor, transparent 50%) !important;
+    }
   }
 
   &.selectionRendering{
@@ -2189,6 +2198,26 @@ button.hasPopupMenu{
             -webkit-mask-image:var(--views-manager-button-icon);
                     mask-image:var(--views-manager-button-icon);
             background-color:var(--button-fg);
+          }
+
+          &[data-view="thumbnails"]::before{
+            -webkit-mask-image:var(--views-manager-button-icon);
+                    mask-image:var(--views-manager-button-icon);
+          }
+
+          &[data-view="outlines"]::before{
+            -webkit-mask-image:var(--menuitem-outlinesView-icon);
+                    mask-image:var(--menuitem-outlinesView-icon);
+          }
+
+          &[data-view="attachments"]::before{
+            -webkit-mask-image:var(--menuitem-attachmentsView-icon);
+                    mask-image:var(--menuitem-attachmentsView-icon);
+          }
+
+          &[data-view="layers"]::before{
+            -webkit-mask-image:var(--menuitem-layersView-icon);
+                    mask-image:var(--menuitem-layersView-icon);
           }
 
           &::after{
@@ -4627,7 +4656,11 @@ dialog :link{
 
 .pdfjs-element.pdfjs-element-narrow-690 .toolbarContainer .toolbarViewer .toolbarButtonSpacer{
     width:0;
-  }/* Copyright 2026 wbw121124
+  }
+
+.pdfjs-element .scaleSelect{
+  border-radius:var(--field-border-radius);
+}/* Copyright 2026 wbw121124
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.

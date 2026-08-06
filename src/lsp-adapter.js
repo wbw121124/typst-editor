@@ -1,4 +1,6 @@
 import { getProject, isReady, getCompletions, getHover, getFormat, onCompile } from './typst-project.js';
+import { translateMessage, translateHint } from './error-translations.js';
+import { session } from './state.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -78,7 +80,7 @@ function registerCompletionProvider(monaco, editor) {
 
       const offset = positionToOffset(model, position);
       const source = model.getValue();
-      const filePath = editor._currentFile || '/main.typ';
+      const filePath = session.currentFile || '/main.typ';
 
       try {
         const result = await getCompletions(filePath, source, offset, context.triggerKind === 1);
@@ -119,7 +121,7 @@ function registerHoverProvider(monaco, editor) {
 
       const offset = positionToOffset(model, position);
       const source = model.getValue();
-      const filePath = editor._currentFile || '/main.typ';
+      const filePath = session.currentFile || '/main.typ';
 
       try {
         const hover = await getHover(filePath, source, offset);
@@ -152,7 +154,7 @@ function registerFormattingProvider(monaco, editor) {
       if (!isReady()) return [];
 
       const source = model.getValue();
-      const filePath = editor._currentFile || '/main.typ';
+      const filePath = session.currentFile || '/main.typ';
 
       try {
         const formatted = await getFormat(filePath, source);
@@ -193,8 +195,8 @@ function registerDiagnosticsHandler(monaco, editor) {
         };
       }
 
-      const message = diag.message + (diag.hints && diag.hints.length > 0
-        ? '\n' + diag.hints.join('\n')
+      const message = translateMessage(diag.message) + (diag.hints && diag.hints.length > 0
+        ? '\n' + diag.hints.map((h) => '提示：' + translateHint(h)).join('\n')
         : '');
 
       return {
@@ -207,3 +209,4 @@ function registerDiagnosticsHandler(monaco, editor) {
     monaco.editor.setModelMarkers(model, 'typst', markers);
   });
 }
+

@@ -21,8 +21,8 @@
  */
 
 /**
- * pdfjsVersion = 6.3.43
- * pdfjsBuild = a27db6e2a
+ * pdfjsVersion = 6.3.49
+ * pdfjsBuild = 2680f4527
  */
 
 ;// ./src/shared/util.js
@@ -763,6 +763,68 @@ const makeSet = () => new Set();
 if (typeof Iterator.prototype.join !== "function") {
   Iterator.prototype.join = function (separator) {
     return [...this].join(separator);
+  };
+}
+if (typeof Map.prototype.getOrInsert !== "function") {
+  Map.prototype.getOrInsert = function (key, value) {
+    if (this.has(key)) {
+      return this.get(key);
+    }
+    this.set(key, value);
+    return value;
+  };
+}
+if (typeof Map.prototype.getOrInsertComputed !== "function") {
+  Map.prototype.getOrInsertComputed = function (key, callbackfn) {
+    if (typeof callbackfn !== "function") {
+      throw new TypeError("Map.prototype.getOrInsertComputed requires a callback function.");
+    }
+    if (this.has(key)) {
+      return this.get(key);
+    }
+    const value = callbackfn(key);
+    this.set(key, value);
+    return value;
+  };
+}
+if (typeof Math.sumPrecise !== "function") {
+  Math.sumPrecise = function (items) {
+    let sum = 0;
+    let minusZero = true;
+    let expansion = [];
+    for (const n of items) {
+      if (typeof n !== "number") {
+        throw new TypeError("Math.sumPrecise: all values must be numbers.");
+      }
+      if (Number.isNaN(n)) {
+        return NaN;
+      }
+      if (n === 0) {
+        minusZero = Object.is(n, -0);
+        continue;
+      }
+      const out = [];
+      let q = n;
+      for (let i = 0; i < expansion.length; i++) {
+        const a = expansion[i];
+        const s = a + q;
+        const bv = s - a;
+        const err = a - (s - bv) + (q - bv);
+        q = s;
+        if (err !== 0) {
+          out.push(err);
+        }
+      }
+      out.push(q);
+      expansion = out;
+    }
+    for (let i = expansion.length - 1; i >= 0; i--) {
+      sum += expansion[i];
+    }
+    if (sum === 0) {
+      return minusZero ? -0 : 0;
+    }
+    return sum;
   };
 }
 
@@ -38734,7 +38796,7 @@ class FileSpec {
   get filename() {
     const item = FileSpec.pickPlatformItem(this.root);
     if (item && typeof item === "string") {
-      return stringToPDFString(item, true).replaceAll("\\\\", "\\").replaceAll("\\/", "/").replaceAll("\\", "/");
+      return stringToPDFString(item, true).replace(/\\\\|\\\/|\\/g, match => match === "\\\\" ? "\\" : "/");
     }
     return "";
   }
@@ -64152,7 +64214,7 @@ class WorkerMessageHandler {
       docId,
       apiVersion
     } = docParams;
-    const workerVersion = "6.3.43";
+    const workerVersion = "6.3.49";
     if (apiVersion !== workerVersion) {
       throw new Error(`The API version "${apiVersion}" does not match ` + `the Worker version "${workerVersion}".`);
     }

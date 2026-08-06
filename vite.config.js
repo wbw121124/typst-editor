@@ -3,21 +3,28 @@ import wasm from 'vite-plugin-wasm';
 import fs from 'fs';
 import path from 'path';
 
-function copyPdfJsElement() {
+function copyDir(src, dest) {
   return {
-    name: 'copy-pdfjs-element',
+    name: `copy-${dest.replace(/[^\w-]/g, '-')}`,
     closeBundle() {
-      const src = path.resolve('pdf.js-element');
-      const dest = path.resolve('dist/pdf.js-element');
-      if (fs.existsSync(src)) {
-        fs.cpSync(src, dest, { recursive: true });
+      const from = path.resolve(src);
+      const to = path.resolve(dest);
+      if (fs.existsSync(to)) {
+        fs.rmSync(to, { recursive: true, force: true });
+      }
+      if (fs.existsSync(from)) {
+        fs.cpSync(from, to, { recursive: true });
       }
     },
   };
 }
 
 export default defineConfig({
-  plugins: [wasm(), copyPdfJsElement()],
+  plugins: [
+    wasm(),
+    copyDir('pdf.js-element', 'dist/pdf.js-element'),
+    copyDir('packages', 'dist/packages'),
+  ],
   optimizeDeps: {
     exclude: [
       '@myriaddreamin/typst-ts-renderer',
