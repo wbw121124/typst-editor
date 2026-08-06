@@ -4,7 +4,11 @@
 #show: show-cn-fakebold
 
 #set page(paper: "a4", margin: (x: 2.5cm, y: 2.5cm))
-#set text(size: 12pt, lang: "zh", font: ("Roboto", "Noto Sans CJK SC", "Noto Serif CJK SC"))
+#set text(size: 12pt, lang: "zh", font: (
+  "Roboto",
+  "Noto Sans CJK SC",
+  "Noto Serif CJK SC",
+))
 
 = Hello, Typst!
 
@@ -21,24 +25,27 @@ This is a live preview editor for *Typst* documents.
 
 == Math Example
 
+#let a = include("physica.typ")
+#a
+
 $ integral_0^oo e^(-x^2) dif x = sqrt(pi) $
 
-#import "@preview/zero:0.6.1": num, format-table, zi
+#import "@preview/zero:0.6.1": format-table, num, zi
 
-Physicists estimate a number of #num[1e80] particles in the observable universe. 
+Physicists estimate a number of #num[1e80] particles in the observable universe.
 
 #figure({
   show: format-table(none, auto)
   table(
     columns: 2,
-    [1], [1.2], 
-    [2], [2], 
-    [3], [300]
+    [1], [1.2],
+    [2], [2],
+    [3], [300],
   )
 })
 
 #let Js = zi.declare("J s")
-Plancks constant is roughly #Js[6.626e-34]. 
+Plancks constant is roughly #Js[6.626e-34].
 
 == Table Example
 
@@ -164,7 +171,7 @@ Plancks constant is roughly #Js[6.626e-34].
       single(stroke: transparent)
       single(
         stroke: transparent,
-        to: 1
+        to: 1,
       )
       fragment("HN")
       branch({
@@ -193,15 +200,17 @@ Plancks constant is roughly #Js[6.626e-34].
 // Style 1
 #import "@preview/physica:0.9.8": *
 
-$ curl (grad f), tensor(T, -mu, +nu), pdv(f,x,y,[1,2]) $
+$ curl (grad f), tensor(T, -mu, +nu), pdv(f, x, y, [1,2]) $
 // Style 2
-#import "@preview/physica:0.9.8": curl, grad, tensor, pdv
+#import "@preview/physica:0.9.8": curl, grad, pdv, tensor
 
-$ curl (grad f), tensor(T, -mu, +nu), pdv(f,x,y,[1,2]) $
+$ curl (grad f), tensor(T, -mu, +nu), pdv(f, x, y, [1,2]) $
 // Style 3
 #import "@preview/physica:0.9.8"
 
-$ physica.curl (physica.grad f), physica.tensor(T, -mu, +nu), physica.pdv(f,x,y,[1,2]) $
+$
+  physica.curl (physica.grad f), physica.tensor(T, -mu, +nu), physica.pdv(f, x, y, [1,2])
+$
 
 #import "@preview/quill:0.8.0" as quill: tequila as tq
 
@@ -211,5 +220,5 @@ $ physica.curl (physica.grad f), physica.tensor(T, -mu, +nu), physica.pdv(f,x,y,
     tq.cx(0, 1),
     tq.cx(0, 2),
   ),
-  quill.gategroup(x: 2, y: 0, 3, 2)
+  quill.gategroup(x: 2, y: 0, 3, 2),
 )

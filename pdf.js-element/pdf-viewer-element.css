@@ -1606,17 +1606,17 @@ button.hasPopupMenu{
   );
   --menuitem-focus-outline-color:var(
     --focus-outline-color,
-    light-dark(#0062fa, #00cadb)
+    light-dark(#0060c0, #00cadb)
   );
-  --menuitem-focus-border-color:light-dark(white, black);
+  --menuitem-focus-border-color:light-dark(#0060c0, black);
 
-  --menu-bg:var(--background-color-box, light-dark(white, #252526));
+  --menu-bg:var(--background-color-box, light-dark(#fff, #252526));
   --menu-background-blend-mode:normal;
-  --menu-box-shadow:0 0.375px 1.5px 0 light-dark(rgb(0 0 0 / 0.05), #454545), 0 3px 12px 0 light-dark(rgb(0 0 0 / 0.1), #3f3f3f);
-  --menu-border-color:light-dark(rgb(21 20 26 / 0.1), #454545);
+  --menu-box-shadow:0 0.375px 1.5px 0 light-dark(rgb(0 0 0 / 0.04), #454545), 0 3px 12px 0 light-dark(rgb(0 0 0 / 0.08), #3f3f3f);
+  --menu-border-color:light-dark(#d4d4d4, #454545);
   --menuitem-border-radius:8px;
   --menu-backdrop-filter:none;
-  --menu-text-color:var(--text-color, light-dark(#15141a, #d4d4d4));
+  --menu-text-color:var(--text-color, light-dark(#000, #d4d4d4));
   --menu-text-disabled-color:var(--menu-text-color);
   --menuitem-text-hover-fg:var(--menu-text-color);
   --menuitem-hover-bg:color-mix(
@@ -2521,8 +2521,8 @@ button.hasPopupMenu{
 
 .sidebar{
   --sidebar-bg-color:var(--background-color-box, light-dark(#fff, #252526));
-  --sidebar-border-color:light-dark(rgb(21 20 26 / 0.1), #454545);
-  --sidebar-box-shadow:0 0.25px 0.75px light-dark(rgb(0 0 0 / 0.05), #454545), 0 2px 6px 0 light-dark(rgb(0 0 0 / 0.1), #3f3f3f);
+  --sidebar-border-color:light-dark(#e5e5e5, #454545);
+  --sidebar-box-shadow:0 0.25px 0.75px light-dark(rgb(0 0 0 / 0.04), #454545), 0 2px 6px 0 light-dark(rgb(0 0 0 / 0.08), #3f3f3f);
   --sidebar-backdrop-filter:none;
   --sidebar-border-radius:8px;
   --sidebar-padding:5px;
@@ -2533,7 +2533,7 @@ button.hasPopupMenu{
   --resizer-shift:calc(0px - var(--resizer-width) - 2px);
   --resizer-hover-bg-color:var(
     --color-accent-primary,
-    light-dark(#0062fa, #00cadb)
+    light-dark(#0060c0, #00cadb)
   );
 
   @media screen and (forced-colors: active){
@@ -3182,30 +3182,31 @@ button.hasPopupMenu{
   --button-hover-icon-opacity:1;
   --button-transition:background-color 120ms ease, color 120ms ease;
   --button-active-bg:color-mix(in srgb, currentColor 26%, transparent);
-  --button-focus-outline:2px solid #0a84ff;
+  --button-focus-color:light-dark(#007acc, #0a84ff);
+  --button-focus-outline:2px solid var(--button-focus-color);
   --toolbar-separator-height:55%;
   --toolbar-separator-margin:5px;
   --split-separator-height:50%;
   --doorhanger-icon-opacity:0.9;
   --doorhanger-height:8px;
 
-  --main-color:light-dark(rgb(12 12 13), #d4d4d4);
-  --body-bg-color:light-dark(rgb(212 212 215), #1e1e1e);
-  --progressBar-color:light-dark(rgb(10 132 255), #0e639c);
-  --progressBar-bg-color:light-dark(rgb(221 221 222), #3c3c3c);
-  --progressBar-blend-color:light-dark(rgb(116 177 239), #17b);
+  --main-color:light-dark(#000, #d4d4d4);
+  --body-bg-color:light-dark(#fff, #1e1e1e);
+  --progressBar-color:light-dark(#007acc, #0e639c);
+  --progressBar-bg-color:light-dark(#e5e5e5, #3c3c3c);
+  --progressBar-blend-color:light-dark(#b8d4f7, #17b);
   --scrollbar-color:light-dark(auto, #505050);
   --scrollbar-bg-color:light-dark(auto, #1e1e1e);
-  --toolbar-icon-bg-color:light-dark(rgb(0 0 0), rgb(255 255 255));
-  --toolbar-icon-hover-bg-color:light-dark(rgb(0 0 0), rgb(255 255 255));
+  --toolbar-icon-bg-color:light-dark(#333, rgb(255 255 255));
+  --toolbar-icon-hover-bg-color:light-dark(#333, rgb(255 255 255));
 
   --sidebar-narrow-bg-color:light-dark(
-    rgb(212 212 215 / 0.9),
+    rgb(255 255 255 / 0.9),
     rgb(30 30 30 / 0.9)
   );
-  --sidebar-toolbar-bg-color:light-dark(rgb(245 246 247), #2d2d2d);
-  --toolbar-bg-color:light-dark(rgb(249 249 250), #252526);
-  --toolbar-border-color:light-dark(rgb(184 184 184), #454545);
+  --sidebar-toolbar-bg-color:light-dark(#fff, #2d2d2d);
+  --toolbar-bg-color:light-dark(#fff, #252526);
+  --toolbar-border-color:light-dark(#e5e5e5, #454545);
   --toolbar-box-shadow:0 1px 0 var(--toolbar-border-color);
   --toolbar-border-bottom:none;
   --toolbarSidebar-box-shadow:inset calc(-1px * var(--dir-factor)) 0 0 rgb(0 0 0 / 0.25), 0 1px 0 rgb(0 0 0 / 0.15), 0 0 1px rgb(0 0 0 / 0.1);
@@ -3214,25 +3215,30 @@ button.hasPopupMenu{
     --button-background-color-toolbar-hover,
     color-mix(in srgb, currentColor 17%, transparent)
   );
-  --toggled-btn-color:light-dark(rgb(0 0 0), rgb(255 255 255));
-  --toggled-btn-bg-color:light-dark(rgb(0 0 0 / 0.3), #264f78);
-  --toggled-hover-active-btn-color:light-dark(rgb(0 0 0 / 0.4), #04395e);
+  --toggled-btn-color:light-dark(#000, rgb(255 255 255));
+  --toggled-btn-bg-color:light-dark(#e4e6f1, #264f78);
+  --toggled-hover-active-btn-color:light-dark(#d6d9e6, #04395e);
   --toggled-hover-btn-outline:none;
-  --dropdown-btn-bg-color:light-dark(rgb(215 215 219), #3c3c3c);
+  --dropdown-btn-bg-color:light-dark(#fff, #3c3c3c);
   --dropdown-btn-border:none;
   --page-number-width:44px;
   --separator-color:rgb(0 0 0 / 0.3);
-  --field-color:light-dark(rgb(6 6 6), #ccc);
-  --field-bg-color:light-dark(rgb(255 255 255), #333);
-  --field-border-color:light-dark(rgb(187 187 188), #3f3f3f);
+  --field-color:light-dark(#000, #ccc);
+  --field-bg-color:light-dark(#fff, #333);
+  --field-border-color:light-dark(#cecece, #3f3f3f);
   --field-border-radius:6px;
-  --field-focus-box-shadow:0 0 0 2px color-mix(in srgb, #0a84ff 25%, transparent);
-  --doorhanger-bg-color:light-dark(rgb(255 255 255), #252526);
-  --doorhanger-border-color:light-dark(rgb(12 12 13 / 0.2), #454545);
+  --field-focus-box-shadow-color:light-dark(#007acc, #0a84ff);
+  --field-focus-box-shadow:0 0 0 2px color-mix(in srgb, var(--field-focus-box-shadow-color) 25%, transparent);
+  --doorhanger-bg-color:light-dark(#fff, #252526);
+  --doorhanger-border-color:light-dark(#d4d4d4, #454545);
   --menu-border-radius:6px;
-  --doorhanger-box-shadow:0 4px 16px rgb(0 0 0 / 0.25), 0 0 0 1px var(--doorhanger-border-color);
-  --doorhanger-hover-color:light-dark(rgb(12 12 13), #d4d4d4);
-  --doorhanger-separator-color:light-dark(rgb(222 222 222), #454545);
+  --doorhanger-box-shadow-color:light-dark(
+    rgb(0 0 0 / 0.08),
+    rgb(0 0 0 / 0.25)
+  );
+  --doorhanger-box-shadow:0 4px 16px var(--doorhanger-box-shadow-color), 0 0 0 1px var(--doorhanger-border-color);
+  --doorhanger-hover-color:light-dark(#000, #d4d4d4);
+  --doorhanger-separator-color:light-dark(#e5e5e5, #454545);
 
   --loading-icon:url(images/loading.svg);
   --toolbarButton-editorComment-icon:url(images/comment-editButton.svg);
@@ -3699,7 +3705,7 @@ button.hasPopupMenu{
   transition:var(--button-transition);
 
   &:focus{
-    border-color:#0a84ff;
+    border-color:var(--button-focus-color);
     box-shadow:var(--field-focus-box-shadow);
   }
 }

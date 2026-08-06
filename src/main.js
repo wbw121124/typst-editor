@@ -3,8 +3,8 @@ import { initTextMateGrammar, registerTextMateLanguage } from './textmate';
 import { $typst, TypstSnippet } from '@myriaddreamin/typst.ts/dist/esm/contrib/snippet.mjs';
 import { MemoryAccessModel } from '@myriaddreamin/typst.ts/dist/esm/fs/index.mjs';
 import { createTypstRenderer } from '@myriaddreamin/typst.ts/dist/esm/renderer.mjs';
+import './monaco-locale.js';
 import * as monaco from 'monaco-editor';
-import '../node_modules/monaco-editor/min/vs/editor/editor.main.css';
 import editorWorker from '../node_modules/monaco-editor/esm/vs/editor/editor.worker?worker';
 import jsonWorker from '../node_modules/monaco-editor/esm/vs/language/json/json.worker?worker';
 import cssWorker from '../node_modules/monaco-editor/esm/vs/language/css/css.worker?worker';
@@ -42,7 +42,6 @@ let fileCache = {};
 let compileTimer = null;
 let typstReady = false;
 let zoomLevel = 100;
-let isDirty = false;
 let cachedVectorData = null;
 let renderChain = Promise.resolve();
 let zoomTimer = null;
@@ -60,6 +59,12 @@ let pdfTimer = null;
 let pdfModulePromise = null;
 let previewMode = 'pdf';
 const LARGE_FILE_THRESHOLD = 100000;
+const openTabs = [];
+const fileModels = new Map();
+const dirtyFiles = new Set();
+let lastWorkerDiagnostics = [];
+let lastErrors = [];
+let autoSaveTimer = null;
 
 function getHiddenCanvas() {
   if (!hiddenCanvas) hiddenCanvas = document.createElement('canvas');
@@ -72,23 +77,37 @@ function getCompilerWorker() {
       type: 'module',
     });
     compilerWorker.addEventListener('message', (event) => {
-      const { id, ok, data, error, cancelled } = event.data;
+      const { id, ok, data, error, cancelled, diagnostics } = event.data;
       const pending = compilerPending.get(id);
       if (!pending) return;
       compilerPending.delete(id);
       if (cancelled) {
         pending.resolve({ __cancelled: true });
       } else if (ok) {
+        lastWorkerDiagnostics = diagnostics || [];
         pending.resolve(data);
       } else {
         pending.reject(new Error(error || 'compile failed'));
       }
     });
     compilerWorker.addEventListener('error', (event) => {
-      for (const pending of compilerPending.values()) {
-        pending.reject(new Error(event.message || 'compiler worker error'));
-      }
+      const crashed = [...compilerPending.entries()];
       compilerPending.clear();
+      const message = event.message || 'compiler worker error';
+      const retryable = crashed.filter(([, p]) => (p.retries || 0) < 1);
+      const failed = crashed.filter(([, p]) => (p.retries || 0) >= 1);
+      compilerWorker = null;
+      if (retryable.length > 0) {
+        const fresh = getCompilerWorker();
+        for (const [id, pending] of retryable) {
+          pending.retries = (pending.retries || 0) + 1;
+          compilerPending.set(id, pending);
+          fresh.postMessage({ id, mainContent: pending.mainContent, format: pending.format });
+        }
+      }
+      for (const [, pending] of failed) {
+        pending.reject(new Error(message));
+      }
     });
     for (const [vpath, content] of workerFiles) {
       compilerWorker.postMessage({ type: 'sync', path: vpath, content });
@@ -100,7 +119,7 @@ function getCompilerWorker() {
 function compileInWorker(mainContent, format = 'vector') {
   const id = ++compilerRequestId;
   return new Promise((resolve, reject) => {
-    compilerPending.set(id, { resolve, reject, mainContent });
+    compilerPending.set(id, { resolve, reject, mainContent, format });
     getCompilerWorker().postMessage({ id, mainContent, format });
   });
 }
@@ -488,12 +507,11 @@ async function initEditor(monaco) {
     const statusEl = document.getElementById('preview-status');
     statusEl.innerText = '准备编译中...'
     fileCache[currentFile] = editor.getValue();
-    isDirty = true;
-    const saveEl = document.getElementById('save-status');
-    if (saveEl.textContent !== '保存中...') {
-      saveEl.textContent = '未保存';
-      saveEl.className = 'dirty';
-    }
+    dirtyFiles.add(currentFile);
+    updateSaveStatus();
+    const treeEl = document.querySelector(`.file-item[data-path="${CSS.escape(currentFile)}"]`);
+    if (treeEl) treeEl.classList.add('dirty');
+    renderTabs();
 
     if (isWasmReady()) {
       syncFile(currentFile, editor.getValue()).catch(e =>
@@ -511,6 +529,13 @@ async function initEditor(monaco) {
     }
   });
 
+  editor.onDidChangeCursorPosition((e) => {
+    const posEl = document.getElementById('statusbar-pos');
+    if (posEl) {
+      posEl.textContent = `行 ${e.position.lineNumber}, 列 ${e.position.column}`;
+    }
+  });
+
   return editor;
 }
 
@@ -521,6 +546,16 @@ async function loadFileTree() {
     const files = await res.json();
     tree.innerHTML = '';
     renderTree(tree, files, '');
+    updateTreeDots();
+    let count = 0;
+    (function walk(items) {
+      for (const item of items) {
+        if (item.type === 'directory') walk(item.children || []);
+        else count++;
+      }
+    })(files);
+    const countEl = document.getElementById('file-count');
+    if (countEl) countEl.textContent = `(${count})`;
     syncWorkspaceToWorker(files).catch(e =>
       console.warn('[Worker] Workspace sync failed:', e)
     );
@@ -541,9 +576,16 @@ function renderTree(container, items) {
       const child = document.createElement('div');
       child.className = 'dir-children';
 
+      const collapseKey = `typst-editor:collapsed:${item.path}`;
+      if (localStorage.getItem(collapseKey) === '1') {
+        el.classList.add('collapsed');
+        child.style.display = 'none';
+      }
+
       el.addEventListener('click', () => {
         const collapsed = el.classList.toggle('collapsed');
         child.style.display = collapsed ? 'none' : '';
+        localStorage.setItem(collapseKey, collapsed ? '1' : '0');
       });
 
       wrapper.appendChild(el);
@@ -662,15 +704,32 @@ async function renameFile(oldPath) {
       body: JSON.stringify({ filePath: newPath, content: data.content }),
     });
     await fetch(`/api/file?path=${encodeURIComponent(oldPath)}`, { method: 'DELETE' });
-    if (currentFile === oldPath) {
-      currentFile = newPath;
-      if (editor) editor._currentFile = newPath;
-    }
+    const wasCurrent = currentFile === oldPath;
+    const oldModel = fileModels.get(oldPath);
+    fileModels.delete(oldPath);
+    const oldIdx = openTabs.indexOf(oldPath);
+    if (oldIdx !== -1) openTabs[oldIdx] = newPath;
+    fileCache[newPath] = data.content;
     delete fileCache[oldPath];
+    if (dirtyFiles.has(oldPath)) {
+      dirtyFiles.delete(oldPath);
+      dirtyFiles.add(newPath);
+    }
     removeWorkerFile(oldPath);
     syncWorkerFile(newPath, data.content);
     await loadFileTree();
-    if (currentFile === newPath) openFile(newPath);
+    if (wasCurrent) {
+      if (oldModel && oldModel === editor.getModel()) {
+        await openFile(newPath);
+        try { oldModel.dispose(); } catch { /* ignore */ }
+      } else {
+        await openFile(newPath);
+      }
+    } else if (oldModel) {
+      try { oldModel.dispose(); } catch { /* ignore */ }
+    }
+    renderTabs();
+    updateTreeDots();
   } catch (err) {
     console.error('Rename failed:', err);
   }
@@ -682,10 +741,31 @@ async function deleteFile(filePath) {
     await fetch(`/api/file?path=${encodeURIComponent(filePath)}`, { method: 'DELETE' });
     delete fileCache[filePath];
     removeWorkerFile(filePath);
+    dirtyFiles.delete(filePath);
+    const model = fileModels.get(filePath);
+    fileModels.delete(filePath);
+    const idx = openTabs.indexOf(filePath);
+    if (idx !== -1) openTabs.splice(idx, 1);
     if (currentFile === filePath) {
-      currentFile = null;
-      if (editor) editor.setValue('');
+      if (openTabs.length > 0) {
+        const next = openTabs[Math.min(idx, openTabs.length - 1)];
+        await switchToTab(next);
+      } else {
+        currentFile = null;
+        if (editor) {
+          editor._currentFile = null;
+          editor.setModel(null);
+        }
+        clearPreview();
+      }
     }
+    if (model) {
+      try { model.dispose(); } catch { /* ignore */ }
+    }
+    renderTabs();
+    updateTreeDots();
+    updateSaveStatus();
+    updateStatusBar();
     await loadFileTree();
   } catch (err) {
     console.error('Delete failed:', err);
@@ -709,63 +789,42 @@ async function saveFileToServer(filePath, content) {
   });
 }
 
-async function openFile(filePath) {
-  if (currentFile && editor) {
-    fileCache[currentFile] = editor.getValue();
-    await saveCurrentFile();
-  }
-
-  currentFile = filePath;
-  isDirty = false;
-  if (editor) editor._currentFile = filePath;
-  let content;
-
-  if (fileCache[filePath] !== undefined) {
-    content = fileCache[filePath];
-  } else {
+async function ensureModel(filePath) {
+  let model = fileModels.get(filePath);
+  if (model) return model;
+  let content = fileCache[filePath];
+  if (content === undefined) {
     try {
       const res = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`);
       const data = await res.json();
       content = data.content;
-      fileCache[filePath] = content;
     } catch {
       content = '';
-      fileCache[filePath] = content;
     }
+    fileCache[filePath] = content;
   }
+  const ext = filePath.split('.').pop();
+  const lang = ext === 'typ' ? 'typst' : ext;
+  model = window.monaco?.editor?.createModel?.(content || '', lang);
+  fileModels.set(filePath, model);
+  return model;
+}
 
-  if (editor) {
-    const ext = filePath.split('.').pop();
-    const lang = ext === 'typ' ? 'typst' : ext;
-    const model = editor.getModel()?.uri?.toString() === filePath
-      ? editor.getModel()
-      : undefined;
-    if (model) {
-      model.setValue(content || '');
-    } else {
-      const newModel = window.monaco?.editor?.createModel?.(content || '', lang);
-      if (newModel) editor.setModel(newModel);
-    }
-  }
-
-  document.querySelectorAll('.file-item[data-path]').forEach((el) => {
-    el.classList.toggle('active', el.dataset.path === filePath);
-  });
-
-  if (isWasmReady()) {
-    syncFile(filePath, content || '').catch(e =>
-      console.warn('[TypstProject] Sync failed:', e)
-    );
-  }
-
+function renderCurrentPreview(content) {
   clearTimeout(zoomTimer);
   zoomAnchor = null;
   zoomLevel = 100;
   updateZoomLayout();
   const previewEl = document.getElementById('preview');
   if (previewEl) previewEl.scrollTop = 0;
-
-  syncWorkerFile(filePath, content || '');
+  if (currentFile) {
+    syncWorkerFile(currentFile, content || '');
+    if (isWasmReady()) {
+      syncFile(currentFile, content || '').catch(e =>
+        console.warn('[TypstProject] Sync failed:', e)
+      );
+    }
+  }
   restartCompilerWorker(content || '');
   const mode = (content || '').length > LARGE_FILE_THRESHOLD ? 'canvas' : 'pdf';
   if (mode !== previewMode) {
@@ -777,38 +836,300 @@ async function openFile(filePath) {
   }
 }
 
-async function saveCurrentFile() {
-  if (!currentFile) return;
-  const content = fileCache[currentFile] ?? editor.getValue();
+async function openFile(filePath) {
+  if (currentFile && editor && currentFile !== filePath) {
+    fileCache[currentFile] = editor.getValue();
+  }
+  const model = await ensureModel(filePath);
+  currentFile = filePath;
+  if (editor) {
+    editor._currentFile = filePath;
+    if (editor.getModel() !== model) editor.setModel(model);
+  }
+  if (!openTabs.includes(filePath)) openTabs.push(filePath);
+  localStorage.setItem('typst-editor:last-file', filePath);
+  updateFileTreeActive();
+  renderTabs();
+  updateTreeDots();
+  updateStatusBar();
+  renderCurrentPreview(fileCache[filePath] ?? '');
+}
+
+async function switchToTab(filePath) {
+  if (filePath === currentFile) return;
+  if (editor && currentFile) {
+    fileCache[currentFile] = editor.getValue();
+  }
+  const model = await ensureModel(filePath);
+  currentFile = filePath;
+  if (editor) {
+    editor._currentFile = filePath;
+    if (editor.getModel() !== model) editor.setModel(model);
+  }
+  localStorage.setItem('typst-editor:last-file', filePath);
+  updateFileTreeActive();
+  renderTabs();
+  updateTreeDots();
+  updateStatusBar();
+  renderCurrentPreview(fileCache[filePath] ?? '');
+}
+
+async function closeTab(filePath) {
+  if (dirtyFiles.has(filePath)) {
+    if (!confirm(`文件 ${filePath} 未保存，确定关闭？`)) return;
+  }
+  const idx = openTabs.indexOf(filePath);
+  if (idx === -1) return;
+  openTabs.splice(idx, 1);
+  const model = fileModels.get(filePath);
+  const wasCurrent = filePath === currentFile;
+  if (wasCurrent) {
+    const next = openTabs.length > 0 ? openTabs[Math.min(idx, openTabs.length - 1)] : null;
+    if (next) {
+      const m = await ensureModel(next);
+      currentFile = next;
+      if (editor) {
+        editor._currentFile = next;
+        if (editor.getModel() !== m) editor.setModel(m);
+      }
+      localStorage.setItem('typst-editor:last-file', next);
+      renderCurrentPreview(fileCache[next] ?? '');
+    } else {
+      currentFile = null;
+      if (editor) {
+        editor._currentFile = null;
+        editor.setModel(null);
+      }
+      clearPreview();
+    }
+  }
+  if (model) {
+    try { model.dispose(); } catch { /* ignore */ }
+  }
+  fileModels.delete(filePath);
+  delete fileCache[filePath];
+  dirtyFiles.delete(filePath);
+  updateFileTreeActive();
+  renderTabs();
+  updateTreeDots();
+  updateSaveStatus();
+  updateStatusBar();
+}
+
+function clearPreview() {
+  if (pdfViewerEl) pdfViewerEl.close();
+  revokePdfUrl();
+  const contentEl = document.getElementById('preview-content');
+  if (contentEl) contentEl.innerHTML = '';
+  renderErrorPanel([]);
+  setPreviewLoading(false);
+  const statusEl = document.getElementById('preview-status');
+  if (statusEl) statusEl.textContent = '未打开文件';
+  const pagesEl = document.getElementById('statusbar-pages');
+  if (pagesEl) pagesEl.textContent = '';
+}
+
+function renderTabs() {
+  const scroll = document.getElementById('tabs-scroll');
+  if (!scroll) return;
+  scroll.innerHTML = '';
+  const bar = document.getElementById('tab-bar');
+  if (bar) bar.classList.toggle('hidden', openTabs.length <= 1);
+  for (const path of openTabs) {
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (path === currentFile ? ' active' : '') + (dirtyFiles.has(path) ? ' dirty' : '');
+    tab.title = path;
+    const name = document.createElement('span');
+    name.className = 'tab-name';
+    name.textContent = path.split('/').pop() || path;
+    const close = document.createElement('span');
+    close.className = 'tab-close';
+    close.textContent = '\u00d7';
+    close.title = '关闭';
+    close.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeTab(path);
+    });
+    tab.appendChild(name);
+    tab.appendChild(close);
+    tab.addEventListener('click', () => switchToTab(path));
+    tab.addEventListener('auxclick', (e) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        closeTab(path);
+      }
+    });
+    scroll.appendChild(tab);
+  }
+}
+
+function updateFileTreeActive() {
+  document.querySelectorAll('.file-item[data-path]').forEach((el) => {
+    el.classList.toggle('active', el.dataset.path === currentFile);
+  });
+}
+
+function updateTreeDots() {
+  document.querySelectorAll('.file-item[data-path]').forEach((el) => {
+    el.classList.toggle('dirty', dirtyFiles.has(el.dataset.path));
+  });
+}
+
+function updateStatusBar() {
+  const fileEl = document.getElementById('statusbar-file');
+  if (fileEl) fileEl.textContent = currentFile || '未打开文件';
+  const modeEl = document.getElementById('statusbar-mode');
+  if (modeEl) modeEl.textContent = previewMode === 'pdf' ? 'PDF' : '画布';
+}
+
+function setPreviewLoading(on) {
+  const el = document.getElementById('preview-loading');
+  if (el) el.classList.toggle('show', on);
+}
+
+let toastTimer = null;
+
+function showToast(msg, ms = 2000) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  container.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 300);
+  }, ms);
+}
+
+function parseRange(rangeStr) {
+  const m = /^(.+):(\d+):(\d+)(?:-(\d+):(\d+))?$/.exec(rangeStr || '');
+  if (!m) return null;
+  return {
+    path: m[1],
+    line: Number(m[2]),
+    col: Number(m[3]),
+    endLine: m[4] ? Number(m[4]) : null,
+    endCol: m[5] ? Number(m[5]) : null,
+  };
+}
+
+function renderErrorPanel(errors) {
+  lastErrors = errors || [];
+  const panel = document.getElementById('error-panel');
+  if (!panel) return;
+  const errorsEl = document.getElementById('statusbar-errors');
+  panel.innerHTML = '';
+  if (lastErrors.length > 0) {
+    const title = document.createElement('div');
+    title.className = 'error-panel-title';
+    title.textContent = `编译错误 (${lastErrors.length})`;
+    panel.appendChild(title);
+    for (const err of lastErrors) {
+      const item = document.createElement('div');
+      item.className = 'error-item';
+      const parsed = parseRange(err.range);
+      const label = document.createElement('span');
+      label.className = 'error-loc';
+      label.textContent = parsed
+        ? `${parsed.path.replace(/^\/+/, '')}:${parsed.line}:${parsed.col}`
+        : (err.path || '');
+      const text = document.createElement('span');
+      text.className = 'error-msg';
+      text.textContent = err.message;
+      item.appendChild(label);
+      item.appendChild(text);
+      item.addEventListener('click', () => jumpToError(err, parsed));
+      panel.appendChild(item);
+    }
+    panel.classList.remove('hidden');
+    if (errorsEl) {
+      errorsEl.textContent = `错误: ${lastErrors.length}`;
+      errorsEl.classList.add('has-errors');
+    }
+  } else {
+    panel.classList.add('hidden');
+    if (errorsEl) {
+      errorsEl.textContent = '';
+      errorsEl.classList.remove('has-errors');
+    }
+  }
+}
+
+async function jumpToError(err, parsed) {
+  let file = (parsed && parsed.path ? parsed.path : err.path || '').replace(/^\/+/, '');
+  if (file === 'worker-main.typ' || file.startsWith('worker-') || file.includes(':')) {
+    file = currentFile;
+  }
+  if (!file) return;
+  await openFile(file);
+  if (parsed && parsed.line && editor) {
+    const pos = { lineNumber: parsed.line, column: Math.max(1, parsed.col) };
+    editor.revealPositionInCenter(pos);
+    editor.setPosition(pos);
+    editor.focus();
+  }
+}
+
+async function saveFile(filePath) {
+  if (!filePath) return false;
+  const content = fileCache[filePath] ?? '';
   const statusEl = document.getElementById('save-status');
-  statusEl.textContent = '保存中...';
-  statusEl.className = 'saving';
+  if (statusEl) {
+    statusEl.textContent = '保存中...';
+    statusEl.className = 'saving';
+  }
   try {
     await fetch('/api/file', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath: currentFile, content }),
+      body: JSON.stringify({ filePath, content }),
     });
-    statusEl.textContent = '已保存';
-    statusEl.className = 'saved';
-    isDirty = false;
-    setTimeout(() => { statusEl.textContent = ''; statusEl.className = ''; }, 3000);
+    dirtyFiles.delete(filePath);
+    updateSaveStatus();
+    renderTabs();
+    updateTreeDots();
+    return true;
   } catch (err) {
     console.error('Save failed:', err);
-    statusEl.textContent = '错误!';
-    statusEl.className = 'error';
+    if (statusEl) {
+      statusEl.textContent = '错误!';
+      statusEl.className = 'error';
+    }
+    return false;
   }
+}
+
+async function saveCurrentFile() {
+  if (!currentFile) return;
+  fileCache[currentFile] = editor.getValue();
+  await saveFile(currentFile);
 }
 
 async function saveAllFiles() {
   if (currentFile) {
     fileCache[currentFile] = editor.getValue();
   }
-  await saveCurrentFile();
+  for (const path of [...openTabs]) {
+    if (dirtyFiles.has(path)) await saveFile(path);
+  }
+}
+
+function updateSaveStatus() {
+  const saveEl = document.getElementById('save-status');
+  if (!saveEl) return;
+  if (dirtyFiles.size > 0) {
+    saveEl.textContent = `未保存 (${dirtyFiles.size})`;
+    saveEl.className = 'dirty';
+  } else {
+    saveEl.textContent = '已保存';
+    saveEl.className = 'saved';
+  }
 }
 
 async function createNewFile() {
-  const name = prompt('New file name (e.g. hello.typ):');
+  const name = prompt('新建文件 (例如 hello.typ):');
   if (!name) return;
   const filePath = name.endsWith('.typ') ? name : name + '.typ';
 
@@ -841,16 +1162,27 @@ function doRender() {
 
   const content = editor.getValue();
   queueRender(async () => {
+    setPreviewLoading(true);
     try {
       const vectorData = await compileInWorker(content);
       if (!vectorData || vectorData.__cancelled) return;
       cachedVectorData = vectorData;
       await drawPreview();
+      setPreviewLoading(false);
       statusEl.textContent = `就绪 - ${currentFile || '未命名'}`;
+      renderErrorPanel(lastWorkerDiagnostics);
+      const pagesEl = document.getElementById('statusbar-pages');
+      if (pagesEl) {
+        const count = getPageCanvasList().length;
+        pagesEl.textContent = count > 0 ? `${count} 页` : '';
+      }
     } catch (err) {
+      setPreviewLoading(false);
       const msg = err?.message || String(err);
       statusEl.textContent = '错误: ' + msg;
       contentEl.innerHTML = `<div class="error-message">${escapeHtml(msg)}</div>`;
+      renderErrorPanel([]);
+      console.error(err);
     }
   });
 }
@@ -1293,9 +1625,11 @@ async function exportSVG() {
     });
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     downloadBlob(blob, (currentFile || 'document').replace(/\.typ$/, '') + '.svg');
+    showToast('已导出 SVG');
   } catch (err) {
     resetRenderer();
     console.error('Export SVG failed:', err);
+    showToast('导出 SVG 失败');
   }
 }
 
@@ -1305,8 +1639,10 @@ async function exportPDF() {
     const pdfData = await compileInWorker(editor.getValue(), 'pdf');
     const blob = new Blob([pdfData], { type: 'application/pdf' });
     downloadBlob(blob, (currentFile || 'document').replace(/\.typ$/, '') + '.pdf');
+    showToast('已导出 PDF');
   } catch (err) {
     console.error('Export PDF failed:', err);
+    showToast('导出 PDF 失败');
   }
 }
 
@@ -1335,6 +1671,7 @@ function getPdfViewerElement() {
       const container = document.getElementById('pdf-viewer');
       container.querySelectorAll('pdf-viewer-element').forEach((old) => old.remove());
       const el = document.createElement('pdf-viewer-element');
+      el.setAttribute('ui-style', 'old');
       el.setAttribute('lang', 'zh-CN');
       el.setAttribute('worker-src', '/pdf.js-element/pdf.worker.mjs');
       el.setAttribute('c-map-url', '/pdf.js-element/cmaps/');
@@ -1347,10 +1684,16 @@ function getPdfViewerElement() {
       el.addEventListener('pdfjs-documentloaded', () => {
         const statusEl = document.getElementById('preview-status');
         statusEl.textContent = `PDF - ${currentFile || '未命名'}`;
+        renderErrorPanel(lastWorkerDiagnostics);
+        setPreviewLoading(false);
+        const pagesEl = document.getElementById('statusbar-pages');
+        const count = pdfViewerEl && typeof pdfViewerEl.pagesCount === 'number' ? pdfViewerEl.pagesCount : 0;
+        if (pagesEl) pagesEl.textContent = count > 0 ? `${count} 页` : '';
       });
       el.addEventListener('pdfjs-documentloadfailed', () => {
         const statusEl = document.getElementById('preview-status');
         statusEl.textContent = 'PDF 加载失败';
+        setPreviewLoading(false);
       });
       return el;
     });
@@ -1369,6 +1712,7 @@ async function refreshPdf() {
   if (!editor) return;
   const statusEl = document.getElementById('preview-status');
   statusEl.textContent = '正在编译 PDF...';
+  setPreviewLoading(true);
   try {
     const pdfData = await compileInWorker(editor.getValue(), 'pdf');
     if (!pdfData || pdfData.__cancelled) return;
@@ -1378,8 +1722,11 @@ async function refreshPdf() {
     const viewer = await getPdfViewerElement();
     await viewer.open(pdfObjectUrl);
   } catch (err) {
+    setPreviewLoading(false);
     const msg = err?.message || String(err);
     statusEl.textContent = 'PDF 错误: ' + msg;
+    renderErrorPanel([]);
+    console.error(err);
   }
 }
 
@@ -1401,6 +1748,7 @@ function switchPreviewMode(mode) {
     previewEl.classList.toggle('pdf-mode', mode === 'pdf');
     previewEl.classList.toggle('canvas-mode', mode === 'canvas');
   }
+  updateStatusBar();
   if (mode === 'canvas') {
     if (pdfViewerEl) pdfViewerEl.close();
     revokePdfUrl();
@@ -1425,11 +1773,20 @@ async function main() {
   document.getElementById('btn-save').addEventListener('click', saveAllFiles);
   document.getElementById('btn-export-svg').addEventListener('click', exportSVG);
   document.getElementById('btn-export-pdf').addEventListener('click', exportPDF);
+  const refreshBtn = document.getElementById('btn-refresh-tree');
+  if (refreshBtn) refreshBtn.addEventListener('click', () => loadFileTree());
+  updateSaveStatus();
+  updateStatusBar();
+  renderTabs();
 
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
       saveAllFiles();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+      e.preventDefault();
+      createNewFile();
     }
     if ((e.ctrlKey || e.metaKey) && e.altKey && e.key === 'e') {
       e.preventDefault();
@@ -1449,6 +1806,16 @@ async function main() {
     }
   });
 
+  const previewEl = document.getElementById('preview');
+  if (previewEl) {
+    previewEl.addEventListener('wheel', (e) => {
+      if (previewMode === 'canvas' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        applyZoomResize(Math.min(300, Math.max(25, zoomLevel + (e.deltaY < 0 ? 5 : -5))));
+      }
+    }, { passive: false });
+  }
+
   initProject('/main.typ').catch(e =>
     console.warn('[TypstProject] Init failed, LSP features disabled:', e)
   );
@@ -1462,13 +1829,25 @@ async function main() {
     await saveFileToServer(defaultFile, DEFAULT_CONTENT);
     await loadFileTree();
   }
-  openFile(defaultFile);
+  const lastFile = localStorage.getItem('typst-editor:last-file');
+  let target = defaultFile;
+  if (lastFile && lastFile !== defaultFile && (await fileExists(lastFile))) {
+    target = lastFile;
+  }
+  openFile(target);
+
+  autoSaveTimer = setInterval(() => {
+    if (dirtyFiles.size > 0) {
+      saveAllFiles().catch(e => console.warn('[AutoSave] failed:', e));
+    }
+  }, 5000);
 
   window.addEventListener('beforeunload', (e) => {
-    if (isDirty) {
+    if (dirtyFiles.size > 0) {
       e.preventDefault();
       e.returnValue = '';
     }
+    if (autoSaveTimer) clearInterval(autoSaveTimer);
     revokePdfUrl();
     destroyProject();
   });

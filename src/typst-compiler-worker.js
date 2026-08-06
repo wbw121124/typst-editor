@@ -66,12 +66,12 @@ function postResult(req, result) {
     return;
   }
   if (typeof result === 'string') {
-    self.postMessage({ id: req.id, ok: true, data: result });
+    self.postMessage({ id: req.id, ok: true, data: result, diagnostics: lastDiagnostics });
     return;
   }
   const bytes = result instanceof Uint8Array ? result : new Uint8Array(result);
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-  self.postMessage({ id: req.id, ok: true, data: bytes }, [buffer]);
+  self.postMessage({ id: req.id, ok: true, data: bytes, diagnostics: lastDiagnostics }, [buffer]);
 }
 
 async function compilePdf(req) {
@@ -81,8 +81,9 @@ async function compilePdf(req) {
   const res = await compiler.compile({
     mainFilePath: MAIN_PATH,
     format: CompileFormatEnum.pdf,
-    diagnostics: 'none',
+    diagnostics: 'full',
   });
+  lastDiagnostics = res.diagnostics || [];
   return res.result;
 }
 
@@ -126,8 +127,9 @@ async function doCompile(req) {
     }
     const res = await compiler.compile({
       mainFilePath: MAIN_PATH,
-      diagnostics: 'none',
+      diagnostics: 'full',
     });
+    lastDiagnostics = res.diagnostics || [];
     const data = res.result;
     lastContent = req.mainContent;
     lastVectorData = data;
@@ -140,6 +142,7 @@ async function doCompile(req) {
 let compilerPromise = null;
 let lastContent = null;
 let lastVectorData = null;
+let lastDiagnostics = [];
 
 function getCompiler() {
   if (!compilerPromise) compilerPromise = $typst.getCompiler();

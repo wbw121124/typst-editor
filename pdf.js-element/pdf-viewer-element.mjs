@@ -21,8 +21,8 @@
  */
 
 /**
- * pdfjsVersion = 6.3.42
- * pdfjsBuild = 778ff436e
+ * pdfjsVersion = 6.3.43
+ * pdfjsBuild = a27db6e2a
  */
 
 ;// ./web/app_options.js
@@ -11290,7 +11290,7 @@ function getDocument(src = {}) {
   }
   const docParams = {
     docId,
-    apiVersion: "6.3.42",
+    apiVersion: "6.3.43",
     data,
     password,
     disableAutoFetch,
@@ -12942,8 +12942,8 @@ class InternalRenderTask {
     }
   }
 }
-const version = "6.3.42";
-const build = "778ff436e";
+const version = "6.3.43";
+const build = "a27db6e2a";
 
 ;// ./src/shared/scripting_utils.js
 
@@ -17557,12 +17557,12 @@ globalThis.pdfjsLib = {
   updateUrlHash: updateUrlHash,
   Util: Util,
   VerbosityLevel: VerbosityLevel,
-  version: (/* inlined export .version */"6.3.42"),
+  version: (/* inlined export .version */"6.3.43"),
   XfaLayer: XfaLayer
 };
 
 ;// ./web/internal_evt.js
-const INTERNAL_EVT = "d0197b82-e038-4851-8d88-02eb63c1e680";
+const INTERNAL_EVT = "59155fc7-5258-4273-960c-f0ba54687d50";
 const internalOpt = Object.freeze({
   internal: INTERNAL_EVT
 });
@@ -26791,9 +26791,9 @@ class PDFViewer {
   #scaleTimeoutId = null;
   #textLayerMode = TextLayerMode.ENABLE;
   constructor(options) {
-    const viewerVersion = "6.3.42";
-    if ((/* inlined export .version */"6.3.42") !== viewerVersion) {
-      throw new Error(`The API version "${(/* inlined export .version */"6.3.42")}" does not match the Viewer version "${viewerVersion}".`);
+    const viewerVersion = "6.3.43";
+    if ((/* inlined export .version */"6.3.43") !== viewerVersion) {
+      throw new Error(`The API version "${(/* inlined export .version */"6.3.43")}" does not match the Viewer version "${viewerVersion}".`);
     }
     this.container = options.container;
     this.viewer = options.viewer || options.container.firstElementChild;
@@ -30092,7 +30092,7 @@ function createPDFViewerApplication(options = {}) {
     },
     async _otherError(key, moreInfo = null) {
       const message = await this.l10n.get(key);
-      const moreInfoText = [`PDF.js v${(/* inlined export .version */"6.3.42") || "?"} (build: ${build || "?"})`];
+      const moreInfoText = [`PDF.js v${(/* inlined export .version */"6.3.43") || "?"} (build: ${build || "?"})`];
       if (moreInfo) {
         moreInfoText.push(`Message: ${moreInfo.message}`);
         if (moreInfo.stack) {
@@ -30321,7 +30321,7 @@ function createPDFViewerApplication(options = {}) {
       this.metadata = metadata;
       this._contentDispositionFilename ??= contentDispositionFilename;
       this._contentLength ??= contentLength;
-      console.log(`PDF ${pdfDocument.fingerprints[0]} [${info.PDFFormatVersion} ` + `${(metadata?.get("pdf:producer") || info.Producer || "-").trim()} / ` + `${(metadata?.get("xmp:creatortool") || info.Creator || "-").trim()}` + `] (PDF.js: ${(/* inlined export .version */"6.3.42") || "?"} [${build || "?"}])`);
+      console.log(`PDF ${pdfDocument.fingerprints[0]} [${info.PDFFormatVersion} ` + `${(metadata?.get("pdf:producer") || info.Producer || "-").trim()} / ` + `${(metadata?.get("xmp:creatortool") || info.Creator || "-").trim()}` + `] (PDF.js: ${(/* inlined export .version */"6.3.43") || "?"} [${build || "?"}])`);
       const pdfTitle = this._docTitle;
       if (pdfTitle) {
         this.setTitle(`${pdfTitle} - ${this._contentDispositionFilename || this._title}`);

@@ -16,7 +16,7 @@
     "@myriaddreamin/typst.ts": "^0.7.0",
     "@vedivad/typst-web-service": "^0.18.8",
     "express": "^5.1.0",
-    "monaco-editor": "^0.56.0",
+    "monaco-editor": "^0.53.0",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2"
   },

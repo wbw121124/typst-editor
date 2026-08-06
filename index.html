@@ -13,20 +13,24 @@
     <div id="toolbar">
       <span class="title">Typst 编辑器</span>
       <div class="toolbar-actions">
-        <label class="font-label" id="preview-status">正在加载 Typst 编译器...</label>
-        <span id="save-status"></span>
         <label class="font-label" for="font-size">字号:</label>
         <input id="font-size" type="number" min="10" max="40" value="14" />
-        <button id="btn-save">保存</button>
-        <button id="btn-export-svg">导出 SVG</button>
-        <button id="btn-export-pdf">导出 PDF</button>
+        <button id="btn-save" title="保存 (Ctrl+S)">保存</button>
+        <button id="btn-export-svg" title="导出 SVG (Ctrl+Alt+E)">导出 SVG</button>
+        <button id="btn-export-pdf" title="导出 PDF (Ctrl+Alt+P)">导出 PDF</button>
       </div>
+    </div>
+    <div id="tab-bar" class="hidden">
+      <div id="tabs-scroll"></div>
     </div>
     <div id="main">
       <div id="sidebar">
-        <div id="sidebar-header">文件</div>
+        <div id="sidebar-header">
+          <span>文件 <span id="file-count"></span></span>
+          <button id="btn-refresh-tree" title="刷新文件树">&#10227;</button>
+        </div>
         <div id="file-tree"></div>
-        <button id="btn-new-file">+ 新建 .typ</button>
+        <button id="btn-new-file" title="新建 (Ctrl+N)">+ 新建 .typ</button>
       </div>
       <div id="editor-container">
         <div id="editor"></div>
@@ -47,11 +51,26 @@
           </div>
           <div id="pdf-viewer">
           </div>
+          <div id="preview-loading">
+            <div class="spinner"></div>
+          </div>
         </div>
+        <div id="error-panel" class="hidden"></div>
       </div>
+    </div>
+    <div id="statusbar">
+      <span id="statusbar-file" class="sb-file">未打开文件</span>
+      <span id="statusbar-pages" class="sb-segment"></span>
+      <span class="sb-spacer"></span>
+      <span id="statusbar-mode" class="sb-segment">PDF</span>
+      <span id="statusbar-errors" class="sb-segment"></span>
+      <span id="statusbar-pos" class="sb-segment">行 1, 列 1</span>
+      <span id="save-status" class="sb-segment"></span>
+      <span id="preview-status" class="sb-segment">正在加载 Typst 编译器...</span>
     </div>
   </div>
   <div id="file-context-menu"></div>
+  <div id="toast-container"></div>
   <script type="module" src="/src/main.js"></script>
 </body>
 
