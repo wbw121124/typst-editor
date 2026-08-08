@@ -1,3 +1,18 @@
+// Uint8Array.prototype.toHex polyfill — required by pdf.js-element (Chromium 131+ natively,
+// older Chromium such as Electron 33 lacks it and crashes PDF preview with
+// "hashOriginal.toHex is not a function").
+if (typeof Uint8Array.prototype.toHex !== 'function') {
+  Object.defineProperty(Uint8Array.prototype, 'toHex', {
+    value: function toHex() {
+      let s = '';
+      for (let i = 0; i < this.length; i++) s += this[i].toString(16).padStart(2, '0');
+      return s;
+    },
+    writable: true,
+    configurable: true,
+  });
+}
+
 import { registerTypstLanguage, registerTypstSnippets } from './typst-lang';
 import { initTextMateGrammar, registerTextMateLanguage } from './textmate';
 import { $typst, TypstSnippet } from '@myriaddreamin/typst.ts/dist/esm/contrib/snippet.mjs';
@@ -542,7 +557,17 @@ async function main() {
     previewEl.addEventListener('wheel', handlePreviewWheel, { passive: false });
   }
 
-  const entry = getEntryFile() || 'main.typ';
+  let defaultFile = 'main.typ';
+  try {
+    const cfg = await (await fetch('/api/config')).json();
+    if (typeof cfg.defaultFile === 'string' && cfg.defaultFile) {
+      defaultFile = cfg.defaultFile.replace(/^\/+/, '');
+    }
+  } catch {
+    /* 保持默认 */
+  }
+
+  const entry = getEntryFile() || defaultFile;
   initProject('/' + entry)
     .then(() => {
       refreshServiceHighlight();
@@ -554,7 +579,6 @@ async function main() {
   await initTypst();
   await loadFileTree();
 
-  const defaultFile = 'main.typ';
   const exists = await fileExists(defaultFile);
   if (!exists) {
     await writeFile(defaultFile, DEFAULT_CONTENT);

@@ -14,4 +14,19 @@ if (typeof Math.sumPrecise !== "function") {
   };
 }
 
+// Uint8Array.prototype.toHex polyfill — pdf.js 6.3.49 relies on this ES2025 API
+// (Chromium 131+). Older Chromium (e.g. Electron 33) crashes fingerprinting with
+// "hashOriginal.toHex is not a function" without it.
+if (typeof Uint8Array.prototype.toHex !== "function") {
+  Object.defineProperty(Uint8Array.prototype, "toHex", {
+    value: function toHex() {
+      let s = "";
+      for (let i = 0; i < this.length; i++) s += this[i].toString(16).padStart(2, "0");
+      return s;
+    },
+    writable: true,
+    configurable: true,
+  });
+}
+
 await import("/pdf.js-element/pdf.worker.mjs");

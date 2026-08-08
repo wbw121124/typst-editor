@@ -3,11 +3,15 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "main": "electron/main.mjs",
   "scripts": {
     "dev": "node server.js",
     "build": "vite build",
     "preview": "vite preview",
-    "install": "node script/install.cjs"
+    "install": "node script/install.cjs",
+    "electron": "vite build && electron .",
+    "electron:dev": "set ELECTRON_DEV=1&& electron .",
+    "dist:win": "vite build && electron-builder --win nsis"
   },
   "dependencies": {
     "@monaco-editor/loader": "^1.7.0",
@@ -22,7 +26,43 @@
   },
   "devDependencies": {
     "vite": "^8.2.0",
-    "vite-plugin-wasm": "^3.6.0"
+    "vite-plugin-wasm": "^3.6.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.wbw121124.typst-editor",
+    "productName": "Typst Editor",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "server.js"
+    ],
+    "extraResources": [
+      {
+        "from": "typst",
+        "to": "workspace-template"
+      },
+      {
+        "from": "packages",
+        "to": "packages"
+      },
+      {
+        "from": "electron/config.template.yml",
+        "to": "config.yml"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "author": {
     "email": "wbw121124@163.com",

@@ -1,0 +1,16 @@
+# Typst 编辑器配置文件
+# 优先级: 环境变量 (TYPST_WORKSPACE / TYPST_CACHE_ROOT / TYPST_PACKAGES) > 本配置 > 内置默认值
+# 相对路径基于本文件所在目录解析
+
+workspace:
+  path: typst              # 工作区目录（存放 .typ 源文件）
+  defaultFile: main.typ    # 默认入口文件（不存在时自动创建）
+
+cache:
+  path: typst-cache        # 历史记录与草稿目录
+
+packages:
+  path: packages           # Typst 包镜像目录
+
+server:
+  port: 3000               # 开发服务器端口（npm run dev 时生效）

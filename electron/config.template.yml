@@ -1,0 +1,13 @@
+# Typst 编辑器配置（桌面版模板，随应用分发；安装版首次启动复制到用户数据目录）
+# 相对路径基于本文件所在目录（用户数据目录）解析
+# workspace.path 对应 %APPDATA%/Typst Editor/workspace
+
+workspace:
+  path: workspace
+  defaultFile: main.typ
+
+cache:
+  path: cache
+
+server:
+  port: 3000

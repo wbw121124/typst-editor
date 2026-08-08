@@ -2,11 +2,69 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WORKSPACE = path.join(__dirname, 'typst');
-const CACHE_ROOT = path.join(__dirname, 'typst-cache');
+
+// ---- config.yml 加载 ----
+const CONFIG_FILE = process.env.TYPST_CONFIG
+  ? path.resolve(process.env.TYPST_CONFIG)
+  : path.join(__dirname, 'config.yml');
+
+function loadConfig(filePath) {
+  let raw = '';
+  try {
+    raw = fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return {};
+  }
+  const result = {};
+  let section = null;
+  for (const line of raw.split(/\r?\n/)) {
+    const text = line.split('#', 1)[0].trimEnd();
+    if (!text.trim()) continue;
+    const m = text.match(/^(\s*)([A-Za-z0-9_.-]+)\s*:\s*(.*)$/);
+    if (!m) continue;
+    const indent = m[1].length;
+    const key = m[2];
+    let value = m[3].trim();
+    if (value === '') {
+      if (indent === 0) section = (result[key] = {});
+      continue;
+    }
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    } else if (value === 'true' || value === 'false') {
+      value = value === 'true';
+    } else if (/^-?\d+$/.test(value)) {
+      value = parseInt(value, 10);
+    }
+    if (indent === 0) {
+      result[key] = value;
+      section = null;
+    } else if (section) {
+      section[key] = value;
+    }
+  }
+  return result;
+}
+
+const config = loadConfig(CONFIG_FILE);
+const configBase = path.dirname(CONFIG_FILE);
+const resolveConfigPath = (value, fallback) =>
+  value ? path.resolve(configBase, String(value)) : fallback;
+
+const WORKSPACE = process.env.TYPST_WORKSPACE
+  ? path.resolve(process.env.TYPST_WORKSPACE)
+  : resolveConfigPath(config.workspace?.path, path.join(__dirname, 'typst'));
+const CACHE_ROOT = process.env.TYPST_CACHE_ROOT
+  ? path.resolve(process.env.TYPST_CACHE_ROOT)
+  : resolveConfigPath(config.cache?.path, path.join(__dirname, 'typst-cache'));
+const PACKAGES_ROOT = process.env.TYPST_PACKAGES
+  ? path.resolve(process.env.TYPST_PACKAGES)
+  : resolveConfigPath(config.packages?.path, path.join(__dirname, 'packages'));
+const DEFAULT_FILE = String(config.workspace?.defaultFile || 'main.typ');
+const CONFIG_PORT = Number(config.server?.port) || 3000;
 const HISTORY_ROOT = path.join(CACHE_ROOT, 'history');
 const DRAFTS_ROOT = path.join(CACHE_ROOT, 'drafts');
 const HISTORY_LIMIT = 50;
@@ -14,9 +72,6 @@ const HISTORY_LIMIT = 50;
 for (const dir of [WORKSPACE, HISTORY_ROOT, DRAFTS_ROOT]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
-
-const app = express();
-app.use(express.json({ limit: '10mb' }));
 
 const sseClients = new Set();
 
@@ -30,6 +85,14 @@ function notifyFsChange(event, relPath) {
     }
   }
 }
+
+export function createApp() {
+  const app = express();
+  app.use(express.json({ limit: '10mb' }));
+
+  app.get('/api/config', (req, res) => {
+    res.json({ defaultFile: DEFAULT_FILE });
+  });
 
 function resolveWorkspacePath(filePath) {
   if (typeof filePath !== 'string' || !filePath) return null;
@@ -291,7 +354,7 @@ app.delete('/api/draft', (req, res) => {
   }
 });
 
-app.use('/packages', express.static(path.join(__dirname, '/packages'), {
+app.use('/packages', express.static(PACKAGES_ROOT, {
   // 2. 强制设置正确的 Content-Type 和 Encoding
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.tar.gz')) {
@@ -302,17 +365,39 @@ app.use('/packages', express.static(path.join(__dirname, '/packages'), {
   }
 }));
 
-async function start() {
+  startFsWatch();
+  return app;
+}
+
+export async function start(port = CONFIG_PORT) {
+  const app = createApp();
   const vite = await createViteServer({
     server: { middlewareMode: true },
     appType: 'spa',
   });
   app.use(vite.middlewares);
 
-  app.listen(3000, () => {
-    console.log(`Typst Editor running at http://localhost:3000`);
+  const server = app.listen(port, () => {
+    const addr = server.address();
+    const actual = typeof addr === 'object' && addr ? addr.port : port;
+    console.log(`Typst Editor running at http://localhost:${actual}`);
     console.log(`Workspace: ${WORKSPACE}`);
   });
+  return server;
+}
+
+export function serveStaticDist(app) {
+  app.use(express.static(path.join(__dirname, 'dist')));
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api/') && !req.path.startsWith('/packages/')) {
+      return res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    }
+    next();
+  });
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  start();
 }
 
 function walkDir(dir, rel) {
