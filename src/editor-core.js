@@ -2,7 +2,8 @@ import { session } from './state.js';
 import { parseRange } from './utils.js';
 import { fetchFile, writeFile } from './file-api.js';
 import { renderCurrentPreview, clearPreview } from './preview.js';
-import { updateFileTreeActive, updateTreeDots, updateSaveStatus, updateStatusBar } from './ui.js';
+import { updateFileTreeActive, updateTreeDots, updateSaveStatus, updateStatusBar, showConfirm } from './ui.js';
+import { snapshotOnSave, clearDraftAfterSave, checkDraftOnOpen, renderTimelinePanel } from './timeline.js';
 
 async function ensureModel(filePath) {
   let model = session.fileModels.get(filePath);
@@ -15,11 +16,17 @@ async function ensureModel(filePath) {
     } catch {
       content = '';
     }
+    const draftContent = await checkDraftOnOpen(filePath, content);
+    if (draftContent !== null) {
+      content = draftContent;
+      session.dirtyFiles.add(filePath);
+    }
     session.fileCache[filePath] = content;
   }
   const ext = filePath.split('.').pop();
   const lang = ext === 'typ' ? 'typst' : ext;
-  model = window.monaco?.editor?.createModel?.(content || '', lang);
+  const uri = window.monaco?.Uri?.parse('file:///' + filePath);
+  model = window.monaco?.editor?.createModel?.(content || '', lang, uri);
   session.fileModels.set(filePath, model);
   return model;
 }
@@ -40,6 +47,10 @@ export async function openFile(filePath) {
   updateTreeDots();
   updateStatusBar();
   renderCurrentPreview(session.fileCache[filePath] ?? '');
+  const timelinePanel = document.getElementById('panel-timeline');
+  if (timelinePanel && timelinePanel.classList.contains('active')) {
+    renderTimelinePanel(filePath);
+  }
 }
 
 export async function switchToTab(filePath) {
@@ -48,7 +59,8 @@ export async function switchToTab(filePath) {
 
 export async function closeTab(filePath) {
   if (session.dirtyFiles.has(filePath)) {
-    if (!confirm(`文件 ${filePath} 未保存，确定关闭？`)) return;
+    const ok = await showConfirm('关闭未保存文件', `文件 ${filePath} 未保存，确定关闭？`);
+    if (!ok) return;
   }
   const idx = session.openTabs.indexOf(filePath);
   if (idx === -1) return;
@@ -132,7 +144,9 @@ export function renderTabs() {
 
 export async function saveFile(filePath) {
   if (!filePath) return false;
-  const content = session.fileCache[filePath] ?? '';
+  const model = session.fileModels.get(filePath);
+  let content = model && !model.isDisposed() ? model.getValue() : session.fileCache[filePath];
+  if (content === undefined) content = '';
   const statusEl = document.getElementById('save-status');
   if (statusEl) {
     statusEl.textContent = '保存中...';
@@ -140,7 +154,10 @@ export async function saveFile(filePath) {
   }
   try {
     await writeFile(filePath, content);
+    session.fileCache[filePath] = content;
     session.dirtyFiles.delete(filePath);
+    clearDraftAfterSave(filePath);
+    snapshotOnSave(filePath).catch(() => {});
     updateSaveStatus();
     renderTabs();
     updateTreeDots();

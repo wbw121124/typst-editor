@@ -1,4 +1,5 @@
 import { fetchFiles, fetchFile } from './file-api.js';
+import { getEntryFile, getEntryContent, isEntryUsable } from './entry.js';
 
 const workerFiles = new Map();
 const compilerPending = new Map();
@@ -69,6 +70,15 @@ export function compileInWorker(mainContent, format = 'vector') {
     compilerPending.set(id, { resolve, reject, mainContent, format });
     getCompilerWorker().postMessage({ id, mainContent, format });
   });
+}
+
+export async function compileEntryInWorker(format = 'vector') {
+  const usable = await isEntryUsable();
+  if (!usable) return null;
+  const content = await getEntryContent();
+  if (content === null) return null;
+  syncWorkerFile(getEntryFile(), content);
+  return compileInWorker(content, format);
 }
 
 export function restartCompilerWorker(skipContent) {

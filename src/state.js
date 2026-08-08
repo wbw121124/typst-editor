@@ -8,4 +8,5 @@ export const session = {
   previewMode: 'pdf',
   zoomLevel: 100,
   typstReady: false,
+  entryFile: null,
 };

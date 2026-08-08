@@ -1,0 +1,7 @@
+[
+  { "name": "论文", "description": "中文科技论文：标题/摘要/引言/结论", "url": "/templates/论文.typ", "filename": "论文.typ" },
+  { "name": "简历", "description": "单页简历：教育/经历/技能", "url": "/templates/简历.typ", "filename": "简历.typ" },
+  { "name": "幻灯片", "description": "16:9 幻灯片：标题/内容/结尾", "url": "/templates/幻灯片.typ", "filename": "幻灯片.typ" },
+  { "name": "报告", "description": "结构化报告：背景/方法/结果/结论", "url": "/templates/报告.typ", "filename": "报告.typ" },
+  { "name": "笔记", "description": "简洁笔记：主题/要点/思考", "url": "/templates/笔记.typ", "filename": "笔记.typ" }
+]

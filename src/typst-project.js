@@ -1,4 +1,5 @@
 import { TypstProject } from '@vedivad/typst-web-service';
+import { FONT_PATHS } from './fonts.js';
 
 let project = null;
 let projectReady = false;
@@ -27,19 +28,7 @@ export async function initProject(entry = '/main.typ') {
 }
 
 async function loadFonts(proj) {
-  const fontPaths = [
-    '/fonts/NotoSansCJKsc-Regular.otf',
-    '/fonts/NotoSerifCJKsc-Regular.otf',
-    '/fonts/LXGWWenKai-Regular.ttf',
-    '/fonts/InriaSerif-Regular.ttf',
-    '/fonts/InriaSerif-Bold.ttf',
-    '/fonts/InriaSerif-Italic.ttf',
-    '/fonts/InriaSerif-BoldItalic.ttf',
-    '/fonts/Roboto-Regular.ttf',
-    '/fonts/JetBrainsMono-Regular.ttf',
-    '/Fira_Code_v6.2/ttf/FiraCode-Regular.ttf',
-    '/Fira_Code_v6.2/ttf/FiraCode-Bold.ttf',
-  ];
+  const fontPaths = FONT_PATHS;
 
   for (const fontPath of fontPaths) {
     try {

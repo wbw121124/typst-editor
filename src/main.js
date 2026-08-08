@@ -2,6 +2,7 @@ import { registerTypstLanguage, registerTypstSnippets } from './typst-lang';
 import { initTextMateGrammar, registerTextMateLanguage } from './textmate';
 import { $typst, TypstSnippet } from '@myriaddreamin/typst.ts/dist/esm/contrib/snippet.mjs';
 import { MemoryAccessModel } from '@myriaddreamin/typst.ts/dist/esm/fs/index.mjs';
+import { FONT_PATHS } from './fonts.js';
 import './monaco-locale.js';
 import * as monaco from 'monaco-editor';
 import 'monaco-editor/min/vs/style.css';
@@ -36,6 +37,22 @@ import {
 import { updateSaveStatus, updateStatusBar } from './ui.js';
 import { setupFileTree, loadFileTree } from './file-tree.js';
 import { setupShortcuts } from './shortcuts.js';
+import { initEntry, getEntryFile } from './entry.js';
+import { setupPdfNavigation, scheduleCursorJump } from './navigation.js';
+import { registerDocumentSymbolProvider, updateOutlinePanel } from './outline.js';
+import { registerDefinitionProvider } from './definition.js';
+import { setupSearchPanel, focusSearch } from './search.js';
+import { setupTemplateUI } from './templates.js';
+import { setupServiceHighlight, refreshServiceHighlight } from './highlight-service.js';
+import {
+  scheduleDraftSave,
+  flushDraft,
+  scheduleAutoSnapshot,
+  snapshotOnSave,
+  clearDraftAfterSave,
+  renderTimelinePanel,
+  closeSnapshotViewer,
+} from './timeline.js';
 import '../pdf.js-element/pdf-viewer-element.css';
 
 window.MonacoEnvironment = {
@@ -268,19 +285,8 @@ async function initTypst() {
     });
 
     $typst.use(
-      TypstSnippet.preloadFonts([
-        '/fonts/NotoSansCJKsc-Regular.otf',
-        '/fonts/NotoSerifCJKsc-Regular.otf',
-        '/fonts/LXGWWenKai-Regular.ttf',
-        '/fonts/InriaSerif-Regular.ttf',
-        '/fonts/InriaSerif-Bold.ttf',
-        '/fonts/InriaSerif-Italic.ttf',
-        '/fonts/InriaSerif-BoldItalic.ttf',
-        '/fonts/Roboto-Regular.ttf',
-        '/fonts/JetBrainsMono-Regular.ttf',
-        '/Fira_Code_v6.2/ttf/FiraCode-Regular.ttf',
-        '/Fira_Code_v6.2/ttf/FiraCode-Bold.ttf',
-      ]),
+      TypstSnippet.preloadFonts(FONT_PATHS),
+      TypstSnippet.disableDefaultFontAssets(),
       TypstSnippet.withAccessModel(accessModel),
       provider,
     );
@@ -330,6 +336,7 @@ async function initEditor(monaco) {
     renderLineHighlight: 'all',
     bracketPairColorization: { enabled: true },
     contextmenu: true,
+    multiCursorModifier: 'ctrlCmd',
   });
   session.editor = editor;
 
@@ -357,10 +364,13 @@ async function initEditor(monaco) {
 
     clearTimeout(compileTimer);
     if (session.previewMode === 'canvas') {
-      compileTimer = setTimeout(() => doRender(), 1000);
+      compileTimer = setTimeout(() => doRender(), 500);
     } else {
       schedulePdfRefresh();
     }
+    scheduleDraftSave();
+    scheduleAutoSnapshot();
+    updateOutlinePanel();
   });
 
   editor.onDidChangeCursorPosition((e) => {
@@ -368,9 +378,25 @@ async function initEditor(monaco) {
     if (posEl) {
       posEl.textContent = `行 ${e.position.lineNumber}, 列 ${e.position.column}`;
     }
+    scheduleCursorJump();
   });
 
   return editor;
+}
+
+function setupSidebarTabs() {
+  const tabs = document.querySelectorAll('.sidebar-tab');
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      tabs.forEach((t) => t.classList.toggle('active', t === tab));
+      document.querySelectorAll('.sidebar-panel').forEach((p) => {
+        p.classList.toggle('active', p.id === 'panel-' + tab.dataset.panel);
+      });
+      if (tab.dataset.panel === 'outline') updateOutlinePanel();
+      if (tab.dataset.panel === 'timeline') renderTimelinePanel(session.currentFile);
+      if (tab.dataset.panel === 'search') focusSearch();
+    });
+  });
 }
 
 function setupDivider() {
@@ -474,6 +500,7 @@ function setupFontSize() {
 
 async function main() {
   window.monaco = monaco;
+  initEntry();
 
   await initEditor(monaco);
   setupDivider();
@@ -481,12 +508,20 @@ async function main() {
   setupZoom();
   setupLazyRender();
   setupFileTree();
+  setupSearchPanel();
+  setupTemplateUI();
+  setupSidebarTabs();
 
   registerLspFeatures(monaco, session.editor);
+  registerDocumentSymbolProvider(monaco);
+  registerDefinitionProvider(monaco);
+  setupPdfNavigation();
+  setupServiceHighlight(monaco, session.editor);
 
   document.getElementById('btn-save').addEventListener('click', saveAllFiles);
   document.getElementById('btn-export-svg').addEventListener('click', exportSVG);
   document.getElementById('btn-export-pdf').addEventListener('click', exportPDF);
+  document.getElementById('snapshot-close').addEventListener('click', closeSnapshotViewer);
   setErrorJumpHandler(jumpToError);
   setOnWorkspaceSynced(() => {
     if (session.editor && session.currentFile) {
@@ -507,9 +542,14 @@ async function main() {
     previewEl.addEventListener('wheel', handlePreviewWheel, { passive: false });
   }
 
-  initProject('/main.typ').catch((e) =>
-    console.warn('[TypstProject] Init failed, LSP features disabled:', e)
-  );
+  const entry = getEntryFile() || 'main.typ';
+  initProject('/' + entry)
+    .then(() => {
+      refreshServiceHighlight();
+    })
+    .catch((e) =>
+      console.warn('[TypstProject] Init failed, LSP features disabled:', e)
+    );
 
   await initTypst();
   await loadFileTree();
@@ -527,6 +567,7 @@ async function main() {
   openFile(target);
 
   window.addEventListener('beforeunload', (e) => {
+    flushDraft();
     if (session.dirtyFiles.size > 0) {
       e.preventDefault();
       e.returnValue = '';

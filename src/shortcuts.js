@@ -2,6 +2,7 @@ import { session } from './state.js';
 import { saveAllFiles } from './editor-core.js';
 import { exportSVG, exportPDF, doRender, refreshPdf } from './preview.js';
 import { createNewFile } from './file-tree.js';
+import { focusSearch } from './search.js';
 
 export function setupShortcuts() {
   document.addEventListener('keydown', (e) => {
@@ -12,6 +13,10 @@ export function setupShortcuts() {
     if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
       e.preventDefault();
       createNewFile();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+      e.preventDefault();
+      focusSearch();
     }
     if ((e.ctrlKey || e.metaKey) && e.altKey && e.key === 'e') {
       e.preventDefault();

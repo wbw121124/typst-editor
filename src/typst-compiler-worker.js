@@ -1,6 +1,7 @@
 import { $typst, TypstSnippet } from '@myriaddreamin/typst.ts/dist/esm/contrib/snippet.mjs';
 import { MemoryAccessModel } from '@myriaddreamin/typst.ts/dist/esm/fs/index.mjs';
 import { CompileFormatEnum } from '@myriaddreamin/typst.ts/dist/esm/compiler.mjs';
+import { FONT_PATHS } from './fonts.js';
 
 const MAIN_PATH = '/worker-main.typ';
 
@@ -22,6 +23,7 @@ self.addEventListener('message', (event) => {
     }
     lastContent = null;
     lastVectorData = null;
+    lastPdfData = null;
     return;
   }
   if (current) {
@@ -76,6 +78,9 @@ function postResult(req, result) {
 }
 
 async function compilePdf(req) {
+  if (lastContent === req.mainContent && lastPdfData) {
+    return lastPdfData;
+  }
   const compiler = await getCompiler();
   applyVfsToCompiler(compiler);
   compiler.addSource(MAIN_PATH, req.mainContent);
@@ -85,6 +90,8 @@ async function compilePdf(req) {
     diagnostics: 'full',
   });
   lastDiagnostics = res.diagnostics || [];
+  lastContent = req.mainContent;
+  lastPdfData = res.result;
   return res.result;
 }
 
@@ -143,6 +150,7 @@ async function doCompile(req) {
 let compilerPromise = null;
 let lastContent = null;
 let lastVectorData = null;
+let lastPdfData = null;
 let lastDiagnostics = [];
 
 function getCompiler() {
@@ -172,19 +180,8 @@ const provider = TypstSnippet.fetchPackageBy(accessModel, (spec) => {
 });
 
 $typst.use(
-  TypstSnippet.preloadFonts([
-    '/fonts/NotoSansCJKsc-Regular.otf',
-    '/fonts/NotoSerifCJKsc-Regular.otf',
-    '/fonts/LXGWWenKai-Regular.ttf',
-    '/fonts/InriaSerif-Regular.ttf',
-    '/fonts/InriaSerif-Bold.ttf',
-    '/fonts/InriaSerif-Italic.ttf',
-    '/fonts/InriaSerif-BoldItalic.ttf',
-    '/fonts/Roboto-Regular.ttf',
-    '/fonts/JetBrainsMono-Regular.ttf',
-    '/Fira_Code_v6.2/ttf/FiraCode-Regular.ttf',
-    '/Fira_Code_v6.2/ttf/FiraCode-Bold.ttf',
-  ]),
+  TypstSnippet.preloadFonts(FONT_PATHS),
+  TypstSnippet.disableDefaultFontAssets(),
   TypstSnippet.withAccessModel(accessModel),
   provider,
 );

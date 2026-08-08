@@ -35,7 +35,7 @@ export function registerTypstLanguage(monaco) {
         end: /^\s*(=|==|===|====|=====|======)\s/,
       },
     },
-    wordPattern: /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g,
+    wordPattern: /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g,
   });
 }
 
@@ -142,6 +142,39 @@ export function registerTypstSnippets(monaco) {
         { label: 'cycle', insertText: 'cycle(${1:6}, {\n  ${0}\n})', detail: '环状结构 (alchemist)' },
         { label: 'branch', insertText: 'branch({\n  ${0}\n})', detail: '支链 (alchemist)' },
         { label: 'skeletize', insertText: '#skeletize({\n  ${0}\n})', detail: '化学骨架 (alchemist)' },
+
+        // 文档结构
+        { label: 'outline', insertText: '#outline(title: [目录], depth: ${1:2})\n${0}', detail: '目录' },
+        { label: 'bibliography', insertText: '#bibliography("${1:refs.bib}", title: [参考文献])\n${0}', detail: '参考文献' },
+        { label: 'abstract', insertText: '#abstract[\n  ${1:摘要内容}\n]\n${0}', detail: '摘要' },
+        { label: 'appendix', insertText: '#appendix[\n  ${1:附录内容}\n]\n${0}', detail: '附录' },
+        { label: 'pagebreak', insertText: '#pagebreak()\n${0}', detail: '分页' },
+        { label: 'figure2', insertText: '#figure(\n  ${1:内容},\n  caption: [${2:说明}],\n  kind: ${3:table},\n)${0}', detail: '带编号图表' },
+        { label: 'equation', insertText: '$ ${1:公式} $ <eq-${2:name}>\n#ref(<eq-${2:name}>, supplement: [公式])\n${0}', detail: '编号公式' },
+
+        // 页眉页脚
+        { label: 'header', insertText: '#set page(header: [${1:页眉}], footer: [${2:页码}], numbering: "${3:1}")\n${0}', detail: '页眉页脚' },
+
+        // 引用样式
+        { label: 'quote', insertText: '#quote[${1:引用内容}]\n${0}', detail: '引用块' },
+        { label: 'cite', insertText: '#cite("${1:key}", form: ${2:prose})\n${0}', detail: '引用文献' },
+        { label: 'ref2', insertText: '#ref(<${1:label}>, supplement: [${2:图}], form: ${3:full})\n${0}', detail: '带说明引用' },
+
+        // 布局
+        { label: 'block', insertText: '#block(inset: ${1:1em}, radius: ${2:5pt})[\n  ${0}\n]', detail: '块容器' },
+        { label: 'vspace', insertText: '#v(${1:1em})', detail: '垂直间距' },
+        { label: 'hspace', insertText: '#h(${1:1em})', detail: '水平间距' },
+        { label: 'place', insertText: '#place(${1:top + right})[${2:内容}]', detail: '绝对定位' },
+        { label: 'padding', insertText: '#pad(x: ${1:1em}, y: ${2:1em})[${3:内容}]', detail: '内边距' },
+        { label: 'box', insertText: '#box(fill: ${1:none}, stroke: ${2:none})[${3:内容}]', detail: '盒子' },
+
+        // 文本
+        { label: 'smallcaps', insertText: '#smallcaps[${1:文本}]', detail: '小型大写' },
+        { label: 'superscript', insertText: '#super[${1:上标}]', detail: '上标' },
+        { label: 'subscript', insertText: '#sub[${1:下标}]', detail: '下标' },
+        { label: 'textsize', insertText: '#text(size: ${1:14pt})[${2:文本}]', detail: '指定字号' },
+        { label: 'textcolor', insertText: '#text(fill: ${1:red})[${2:文本}]', detail: '指定颜色' },
+        { label: 'link2', insertText: '#link("${1:https://example.com}")[${2:链接文字}]', detail: '链接文字' },
       ];
 
       return {

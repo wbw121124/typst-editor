@@ -1,6 +1,7 @@
 import { session } from './state.js';
 import {
   compileInWorker,
+  compileEntryInWorker,
   getLastDiagnostics,
   restartCompilerWorker,
   syncWorkerFile,
@@ -9,6 +10,7 @@ import { syncFile, isReady as isWasmReady } from './typst-project.js';
 import { escapeHtml, downloadBlob } from './utils.js';
 import { translateMessage } from './error-translations.js';
 import { updateStatusBar } from './ui.js';
+import { isEntryUsable, getEntryFile, getEntryContent } from './entry.js';
 
 const LAZY_MARGIN = 200;
 const LARGE_FILE_THRESHOLD = 100000;
@@ -31,6 +33,10 @@ let errorJumpHandler = null;
 
 export function setErrorJumpHandler(fn) {
   errorJumpHandler = fn;
+}
+
+export function getPdfViewerElementRef() {
+  return pdfViewerEl;
 }
 
 function getHiddenCanvas() {
@@ -172,21 +178,36 @@ function queueRender(task) {
   return renderChain;
 }
 
+async function resolveCompileSource() {
+  const usable = await isEntryUsable();
+  if (usable) {
+    const entry = getEntryFile();
+    const content = await getEntryContent();
+    if (content !== null) {
+      syncWorkerFile(entry, content);
+      return { entry, content };
+    }
+  }
+  if (!session.editor) return null;
+  return { entry: null, content: session.editor.getValue() };
+}
+
 export function doRender() {
   const contentEl = document.getElementById('preview-content');
   const statusEl = document.getElementById('preview-status');
   if (!session.typstReady || !session.editor) return;
 
-  const content = session.editor.getValue();
   queueRender(async () => {
     setPreviewLoading(true);
     try {
-      const vectorData = await compileInWorker(content);
+      const src = await resolveCompileSource();
+      if (!src) return;
+      const vectorData = await compileInWorker(src.content);
       if (!vectorData || vectorData.__cancelled) return;
       cachedVectorData = vectorData;
       await drawPreview();
       setPreviewLoading(false);
-      statusEl.textContent = `就绪 - ${session.currentFile || '未命名'}`;
+      statusEl.textContent = `就绪 - ${src.entry || session.currentFile || '未命名'}`;
       renderErrorPanel(getLastDiagnostics(), errorJumpHandler);
       const pagesEl = document.getElementById('statusbar-pages');
       if (pagesEl) {
@@ -621,13 +642,16 @@ export async function refreshPdf() {
   statusEl.textContent = '正在编译 PDF...';
   setPreviewLoading(true);
   try {
-    const pdfData = await compileInWorker(session.editor.getValue(), 'pdf');
+    const src = await resolveCompileSource();
+    if (!src) return;
+    const pdfData = await compileInWorker(src.content, 'pdf');
     if (!pdfData || pdfData.__cancelled) return;
     revokePdfUrl();
     const blob = new Blob([pdfData], { type: 'application/pdf' });
     pdfObjectUrl = URL.createObjectURL(blob);
     const viewer = await getPdfViewerElement();
     await viewer.open(pdfObjectUrl);
+    statusEl.textContent = `PDF - ${src.entry || session.currentFile || '未命名'}`;
   } catch (err) {
     setPreviewLoading(false);
     const msg = err?.message || String(err);
@@ -639,7 +663,7 @@ export async function refreshPdf() {
 
 export function schedulePdfRefresh() {
   clearTimeout(pdfTimer);
-  pdfTimer = setTimeout(() => refreshPdf(), 1000);
+  pdfTimer = setTimeout(() => refreshPdf(), 500);
 }
 
 export function switchPreviewMode(mode) {
@@ -670,7 +694,9 @@ export async function exportSVG() {
   try {
     let data = cachedVectorData;
     if (!data || data.__cancelled) {
-      const res = await compileInWorker(session.editor.getValue(), 'vector');
+      const src = await resolveCompileSource();
+      if (!src) return;
+      const res = await compileInWorker(src.content, 'vector');
       if (!res || res.__cancelled) throw new Error('编译已取消');
       data = res;
     }
@@ -696,9 +722,11 @@ export async function exportSVG() {
 export async function exportPDF() {
   if (!session.typstReady || !session.editor) return;
   try {
-    const pdfData = await compileInWorker(session.editor.getValue(), 'pdf');
+    const src = await resolveCompileSource();
+    if (!src) return;
+    const pdfData = await compileInWorker(src.content, 'pdf');
     const blob = new Blob([pdfData], { type: 'application/pdf' });
-    downloadBlob(blob, (session.currentFile || 'document').replace(/\.typ$/, '') + '.pdf');
+    downloadBlob(blob, (src.entry || session.currentFile || 'document').replace(/\.typ$/, '') + '.pdf');
     showToast('已导出 PDF');
   } catch (err) {
     console.error('Export PDF failed:', err);

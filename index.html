@@ -16,6 +16,7 @@
         <label class="font-label" for="font-size">字号:</label>
         <input id="font-size" type="number" min="10" max="40" value="14" />
         <button id="btn-save" title="保存 (Ctrl+S)">保存</button>
+        <button id="btn-templates" title="从模板新建">模板</button>
         <button id="btn-export-svg" title="导出 SVG (Ctrl+Alt+E)">导出 SVG</button>
         <button id="btn-export-pdf" title="导出 PDF (Ctrl+Alt+P)">导出 PDF</button>
       </div>
@@ -25,12 +26,32 @@
     </div>
     <div id="main">
       <div id="sidebar">
-        <div id="sidebar-header">
-          <span>文件 <span id="file-count"></span></span>
-          <button id="btn-refresh-tree" title="刷新文件树">&#10227;</button>
+        <div id="sidebar-tabs">
+          <button class="sidebar-tab active" data-panel="files">文件</button>
+          <button class="sidebar-tab" data-panel="outline">大纲</button>
+          <button class="sidebar-tab" data-panel="search">搜索</button>
+          <button class="sidebar-tab" data-panel="timeline">时间线</button>
         </div>
-        <div id="file-tree"></div>
-        <button id="btn-new-file" title="新建 (Ctrl+N)">+ 新建 .typ</button>
+        <div id="panel-files" class="sidebar-panel active">
+          <div id="sidebar-header">
+            <span>文件 <span id="file-count"></span></span>
+            <button id="btn-refresh-tree" title="刷新文件树">&#10227;</button>
+          </div>
+          <div id="file-tree"></div>
+          <button id="btn-new-file" title="新建 (Ctrl+N)">+ 新建 .typ</button>
+        </div>
+        <div id="panel-outline" class="sidebar-panel">
+          <div id="outline-panel"></div>
+        </div>
+        <div id="panel-search" class="sidebar-panel">
+          <div class="search-bar">
+            <input id="search-input" type="text" placeholder="搜索工作区... (Ctrl+Shift+F)" />
+          </div>
+          <div id="search-results"></div>
+        </div>
+        <div id="panel-timeline" class="sidebar-panel">
+          <div id="timeline-list"></div>
+        </div>
       </div>
       <div id="editor-container">
         <div id="editor"></div>
@@ -62,6 +83,8 @@
       <span id="statusbar-file" class="sb-file">未打开文件</span>
       <span id="statusbar-pages" class="sb-segment"></span>
       <span class="sb-spacer"></span>
+      <span id="statusbar-entry" class="sb-segment"></span>
+      <span id="statusbar-words" class="sb-segment"></span>
       <span id="statusbar-mode" class="sb-segment">PDF</span>
       <span id="statusbar-errors" class="sb-segment"></span>
       <span id="statusbar-pos" class="sb-segment">行 1, 列 1</span>
@@ -71,6 +94,29 @@
   </div>
   <div id="file-context-menu"></div>
   <div id="toast-container"></div>
+  <div id="template-modal" class="hidden">
+    <div id="template-modal-box">
+      <div id="template-modal-header">
+        <span>从模板新建</span>
+        <button id="template-close" title="关闭">&#215;</button>
+      </div>
+      <div id="template-list"></div>
+    </div>
+  </div>
+  <div id="snapshot-viewer" class="hidden">
+    <button id="snapshot-close" title="关闭">关闭</button>
+  </div>
+  <div id="dialog-mask" class="hidden">
+    <div id="dialog-box">
+      <div id="dialog-title"></div>
+      <div id="dialog-message"></div>
+      <input id="dialog-input" type="text" class="hidden" />
+      <div id="dialog-buttons">
+        <button id="dialog-cancel">取消</button>
+        <button id="dialog-ok">确定</button>
+      </div>
+    </div>
+  </div>
   <script type="module" src="/src/main.js"></script>
 </body>
 
