@@ -1,5 +1,4 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -370,6 +369,7 @@ app.use('/packages', express.static(PACKAGES_ROOT, {
 }
 
 export async function start(port = CONFIG_PORT) {
+  const { createServer: createViteServer } = await import('vite');
   const app = createApp();
   const vite = await createViteServer({
     server: { middlewareMode: true },
