@@ -7,6 +7,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, '..');
 const isDev = process.env.ELECTRON_DEV === '1';
 
+app.setName('Typst Editor');
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();

@@ -51,7 +51,7 @@ npm run electron
 # 开发模式（免构建，直接加载 Vite 开发服务器）
 npm run electron:dev
 
-# 打包 Windows 安装包（NSIS，输出到 release/）
+# 打包 Windows 安装包（NSIS，输出到 release/；复用本地 Electron 二进制，无需重复下载）
 npm run dist:win
 ```
 
@@ -60,6 +60,7 @@ npm run dist:win
 - 未打包时使用项目内 `typst/` 作为工作区、`typst-cache/` 作为历史/草稿目录；`typst/` 与 `packages/` 随构建产物一起分发
 - 安装包版本首次启动会在 `%APPDATA%/Typst Editor/` 创建独立 `config.yml`（含默认 `workspace` 与 `cache` 目录），并从内置模板初始化工作区
 - `F12` 打开开发者工具；`View` 菜单可缩放/刷新
+- `dist:win` 默认不进行代码签名（无证书环境可一键打包）；如需签名请移除脚本中的 `signAndEditExecutable=false` 并配置证书
 
 ## 配置文件（config.yml）
 

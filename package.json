@@ -11,7 +11,7 @@
     "install": "node script/install.cjs",
     "electron": "vite build && electron .",
     "electron:dev": "set ELECTRON_DEV=1&& electron .",
-    "dist:win": "vite build && electron-builder --win nsis"
+    "dist:win": "vite build && set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win nsis --config.win.signAndEditExecutable=false"
   },
   "dependencies": {
     "@monaco-editor/loader": "^1.7.0",
