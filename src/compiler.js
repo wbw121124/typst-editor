@@ -1,4 +1,4 @@
-import { fetchFiles, fetchFile } from './file-api.js';
+import { fetchFile } from './file-api.js';
 import { getEntryFile, getEntryContent, isEntryUsable } from './entry.js';
 
 const workerFiles = new Map();
@@ -7,7 +7,6 @@ const compilerPending = new Map();
 let compilerWorker = null;
 let compilerRequestId = 0;
 let lastWorkerDiagnostics = [];
-let projectFiles = [];
 let onWorkspaceSynced = null;
 
 export function setOnWorkspaceSynced(fn) {
@@ -111,27 +110,38 @@ export function removeWorkerFile(path) {
   }
 }
 
-export async function syncWorkspaceToWorker(files) {
-  let list = files;
-  if (!list) {
-    try {
-      list = await fetchFiles();
-    } catch {
-      return;
+export async function syncWorkspaceToWorker() {
+  const session = (await import('./state.js')).session;
+  const { collectReferencedPaths, resolveRefPath } = await import('./definition.js');
+  const wanted = new Map();
+  const roots = [...session.openTabs];
+  if (session.currentFile && !roots.includes(session.currentFile)) roots.push(session.currentFile);
+  const queue = [...roots];
+  const visited = new Set(queue);
+  for (const p of roots) wanted.set('/' + p.replace(/^\/+/, ''), p);
+  while (queue.length > 0) {
+    const from = queue.shift();
+    const vpath = '/' + from.replace(/^\/+/, '');
+    let content = workerFiles.get(vpath);
+    if (content == null) {
+      try {
+        const data = await fetchFile(from);
+        content = data.content ?? null;
+      } catch {
+        content = null;
+      }
+    }
+    if (content == null) continue;
+    for (const ref of collectReferencedPaths(content)) {
+      const target = resolveRefPath(ref, from);
+      if (visited.has(target)) continue;
+      visited.add(target);
+      const tpath = '/' + target.replace(/^\/+/, '');
+      wanted.set(tpath, target);
+      queue.push(target);
     }
   }
-  const flat = [];
-  (function walk(items) {
-    for (const item of items) {
-      if (item.type === 'directory') walk(item.children || []);
-      else flat.push(item.path);
-    }
-  })(list);
-  projectFiles = flat;
-  const valid = new Set(flat.filter((p) => p.endsWith('.typ')).map((p) => `/${p}`));
-  for (const path of flat) {
-    if (!path.endsWith('.typ')) continue;
-    const vpath = `/${path}`;
+  for (const [vpath, path] of wanted) {
     if (workerFiles.has(vpath)) continue;
     try {
       const data = await fetchFile(path);
@@ -141,7 +151,7 @@ export async function syncWorkspaceToWorker(files) {
     }
   }
   for (const vpath of [...workerFiles.keys()]) {
-    if (!valid.has(vpath)) removeWorkerFile(vpath.replace(/^\//, ''));
+    if (!wanted.has(vpath)) removeWorkerFile(vpath.replace(/^\//, ''));
   }
   if (onWorkspaceSynced) {
     onWorkspaceSynced();

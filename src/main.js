@@ -336,7 +336,8 @@ async function initEditor(monaco) {
     renderLineHighlight: 'all',
     bracketPairColorization: { enabled: true },
     contextmenu: true,
-    multiCursorModifier: 'ctrlCmd',
+    multiCursorModifier: 'alt',
+    definitionLinkOpensInPeek: false,
   });
   session.editor = editor;
 
@@ -534,7 +535,6 @@ async function main() {
   });
   updateSaveStatus();
   updateStatusBar();
-  renderTabs();
   setupShortcuts();
 
   const previewEl = document.getElementById('preview');
@@ -560,11 +560,29 @@ async function main() {
     await writeFile(defaultFile, DEFAULT_CONTENT);
     await loadFileTree();
   }
-  const lastFile = localStorage.getItem('typst-editor:last-file');  let target = defaultFile;
-  if (lastFile && lastFile !== defaultFile && (await fileExists(lastFile))) {
-    target = lastFile;
+  let savedTabs = [];
+  try {
+    const raw = localStorage.getItem('typst-editor:open-tabs');
+    if (raw) savedTabs = JSON.parse(raw);
+  } catch {
+    savedTabs = [];
   }
-  openFile(target);
+  if (!Array.isArray(savedTabs)) savedTabs = [];
+  const validTabs = [];
+  for (const p of savedTabs) {
+    if (typeof p === 'string' && (await fileExists(p))) validTabs.push(p);
+  }
+  const lastFile = localStorage.getItem('typst-editor:last-file');
+  let target = defaultFile;
+  if (lastFile && lastFile !== defaultFile && validTabs.includes(lastFile)) {
+    target = lastFile;
+  } else if (validTabs.length > 0) {
+    target = validTabs[0];
+  }
+  for (const p of [...validTabs.filter((p) => p !== target), target]) {
+    await openFile(p);
+  }
+  renderTabs();
 
   window.addEventListener('beforeunload', (e) => {
     flushDraft();

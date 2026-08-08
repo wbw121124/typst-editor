@@ -1,53 +1,73 @@
-import { fetchFiles, fetchFile } from './file-api.js';
+import { fetchFile } from './file-api.js';
 import { session } from './state.js';
 
 const DEFINITION_RE = /#let\s+([A-Za-z_][\w-]*)\s*(?:\([^)]*\))?\s*=/g;
 const LABEL_RE = /<([A-Za-z_][\w-]*)>/g;
 const IMPORT_RE = /#import\s+"[^"]*"\s*:\s*(?:\(\s*)?([A-Za-z_][\w-]*(?:\s*,\s*[A-Za-z_][\w-]*)*)\)?/g;
+const REF_RE = /#?(?:include|import)\s*(?:\(\s*"([^"]+)"|"([^"]+)")/g;
 
 let definitionIndex = new Map();
 let indexBuiltAt = 0;
 let building = null;
+
+function cachedContent(path) {
+  const model = session.fileModels.get(path);
+  if (model && !model.isDisposed()) return model.getValue();
+  return session.fileCache[path] ?? null;
+}
+
+export function resolveRefPath(raw, fromFile) {
+  let p = raw;
+  if (!/\.[A-Za-z0-9]{1,8}$/.test(p)) p += '.typ';
+  const dir = fromFile ? fromFile.split('/').slice(0, -1).join('/') : '';
+  if (dir && p !== dir + '/') return dir + '/' + p;
+  return p;
+}
+
+export function collectReferencedPaths(contents) {
+  const refs = [];
+  for (const m of contents.matchAll(REF_RE)) {
+    refs.push(m[1] || m[2]);
+  }
+  return refs;
+}
 
 export async function buildDefinitionIndex(force = false) {
   if (building) return building;
   if (!force && definitionIndex.size > 0 && Date.now() - indexBuiltAt < 30000) return;
   building = (async () => {
     try {
-      const files = await fetchFiles();
-      const flat = [];
-      (function walk(items) {
-        for (const item of items) {
-          if (item.type === 'directory') walk(item.children || []);
-          else if (item.path.endsWith('.typ')) flat.push(item.path);
-        }
-      })(files);
-      const index = new Map();
-      for (const path of flat) {
-        try {
-          const data = await fetchFile(path);
-          const content = data.content || '';
-          for (const m of content.matchAll(IMPORT_RE)) {
-            for (const name of m[1].split(/\s*,\s*/)) {
-              index.set(name, { path, line: lineOf(content, m.index) });
-            }
-          }
-        } catch {
-          /* ignore unreadable */
+      const paths = new Set();
+      if (session.currentFile) paths.add(session.currentFile);
+      for (const path of session.openTabs) paths.add(path);
+      for (const path of [...paths]) {
+        const content = cachedContent(path);
+        if (!content) continue;
+        for (const ref of collectReferencedPaths(content)) {
+          paths.add(resolveRefPath(ref, path));
         }
       }
-      for (const path of flat) {
-        try {
-          const data = await fetchFile(path);
-          const content = data.content || '';
-          for (const m of content.matchAll(DEFINITION_RE)) {
-            index.set(m[1], { path, line: lineOf(content, m.index) });
+      const index = new Map();
+      for (const path of paths) {
+        let content = cachedContent(path);
+        if (content == null) {
+          try {
+            const data = await fetchFile(path);
+            content = data.content || '';
+          } catch {
+            continue;
           }
-          for (const m of content.matchAll(LABEL_RE)) {
-            index.set(m[1], { path, line: lineOf(content, m.index) });
+        }
+        for (const m of content.matchAll(IMPORT_RE)) {
+          for (const name of m[1].split(/\s*,\s*/)) {
+            index.set(name, { path, line: lineOf(content, m.index) });
           }
-        } catch {
-          /* ignore unreadable */
+        }
+        for (const m of content.matchAll(DEFINITION_RE)) {
+          index.set(m[1], { path, line: lineOf(content, m.index) });
+        }
+        for (const m of content.matchAll(LABEL_RE)) {
+          index.set(m[1], { path, line: lineOf(content, m.index) });
         }
       }
       definitionIndex = index;
@@ -94,6 +114,22 @@ async function resolveIncludePath(raw, currentFile) {
 }
 
 export function registerDefinitionProvider(monaco) {
+  monaco.editor.registerEditorOpener({
+    async openCodeEditor(source, resource, selectionOrPosition) {
+      const path = resource.path.replace(/^\/+/, '');
+      if (!path) return false;
+      const line = selectionOrPosition
+        ? selectionOrPosition.startLineNumber || selectionOrPosition.lineNumber || 1
+        : 1;
+      try {
+        await openDefinition(path, line);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  });
+
   monaco.languages.registerDefinitionProvider('typst', {
     async provideDefinition(model, position) {
       const lineText = model.getLineContent(position.lineNumber);
@@ -110,6 +146,8 @@ export function registerDefinitionProvider(monaco) {
               return null;
             }
           }
+          session.fileModels.set(target.path, targetModel);
+          session.fileCache[target.path] = target.content;
           return { uri, range: new monaco.Range(1, 1, 1, 1) };
         }
       }
@@ -131,6 +169,8 @@ export function registerDefinitionProvider(monaco) {
           return null;
         }
       }
+      session.fileModels.set(hit.path, targetModel);
+      session.fileCache[hit.path] = targetModel.getValue();
       return {
         uri: targetUri,
         range: new monaco.Range(hit.line, 1, hit.line, 1),

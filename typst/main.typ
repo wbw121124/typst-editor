@@ -9,6 +9,8 @@
   "Noto Sans CJK SC",
   "Noto Serif CJK SC",
 ))
+#show link: set text(fill: blue, weight: 700)
+#show link: underline
 
 = Hello, Typst!
 

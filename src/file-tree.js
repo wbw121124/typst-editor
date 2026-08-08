@@ -34,7 +34,7 @@ export async function loadFileTree() {
     })(files);
     const countEl = document.getElementById('file-count');
     if (countEl) countEl.textContent = `(${count})`;
-    syncWorkspaceToWorker(files).catch((e) =>
+    syncWorkspaceToWorker().catch((e) =>
       console.warn('[Worker] Workspace sync failed:', e)
     );
   } catch {
