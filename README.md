@@ -21,7 +21,7 @@
 | [typst.ts](https://github.com/Myriad-Dreamin/typst.ts) | Typst WASM 编译器与渲染器 |
 | [typst-web-service](https://github.com/vedivad/typst-web-service) | 补全 / 悬停 / 格式化等语言服务 |
 | [monaco-editor](https://github.com/microsoft/monaco-editor) | 代码编辑器 |
-| [pdf.js-element](https://github.com/MatthiasPortzel/pdf.js-element) | PDF 预览与导出 |
+| [pdf.js-element](https://github.com/wbw121124/pdf.js-element) | PDF 预览与导出 |
 | [Vite](https://vitejs.dev/) + [Express](https://expressjs.com/) | 开发服务器与文件 API |
 | [Electron](https://www.electronjs.org/) + [electron-builder](https://www.electron.build/) | 桌面版与安装包 |
 
