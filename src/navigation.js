@@ -71,26 +71,18 @@ export async function handlePdfPreviewClick(e) {
   }
 }
 
-export async function scrollPreviewToCursor() {
-  if (!isReady() || !session.editor) return;
-  const model = session.editor.getModel();
-  if (!model) return;
-  const pos = session.editor.getPosition();
-  if (!pos) return;
-
-  const source = model.getValue();
+export function sourceOffsetForPosition(source, lineNumber, column) {
   const lines = source.split('\n');
   let offset = 0;
-  for (let i = 0; i < pos.lineNumber - 1 && i < lines.length; i++) {
+  for (let i = 0; i < lineNumber - 1 && i < lines.length; i++) {
     offset += lines[i].length + 1;
   }
-  offset += pos.column - 1;
+  return offset + (column || 1) - 1;
+}
 
-  const filePath = session.currentFile || 'main.typ';
-  const jumpKey = `${filePath}:${offset}`;
-  if (jumpKey === lastJumpKey) return;
-  lastJumpKey = jumpKey;
-
+export async function scrollPreviewToPosition(filePath, source, lineNumber, column) {
+  if (!isReady()) return;
+  const offset = sourceOffsetForPosition(source, lineNumber, column);
   const project = getProject();
   try {
     const jump = await project.jumpFromCursor(toVfsPath(filePath), source, offset);
@@ -104,6 +96,24 @@ export async function scrollPreviewToCursor() {
   } catch (err) {
     console.warn('[Nav] jumpFromCursor failed:', err);
   }
+}
+
+export async function scrollPreviewToCursor() {
+  if (!isReady() || !session.editor) return;
+  const model = session.editor.getModel();
+  if (!model) return;
+  const pos = session.editor.getPosition();
+  if (!pos) return;
+
+  const source = model.getValue();
+  const offset = sourceOffsetForPosition(source, pos.lineNumber, pos.column);
+
+  const filePath = session.currentFile || 'main.typ';
+  const jumpKey = `${filePath}:${offset}`;
+  if (jumpKey === lastJumpKey) return;
+  lastJumpKey = jumpKey;
+
+  await scrollPreviewToPosition(filePath, source, pos.lineNumber, pos.column);
 }
 
 export function scheduleCursorJump() {

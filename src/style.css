@@ -980,6 +980,49 @@ canvas {
   color: #fff;
 }
 
+.outline-group {
+  margin-top: 4px;
+  border-top: 1px solid #333;
+}
+
+.outline-group-header {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: bold;
+  color: #888;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.outline-group-header::before {
+  content: '▸ ';
+  font-size: 10px;
+}
+
+.outline-group:not(.collapsed) .outline-group-header::before {
+  content: '▾ ';
+}
+
+.outline-group-header:hover {
+  color: #c8c8c8;
+  background: #2a2d2e;
+}
+
+.outline-group.collapsed .outline-group-body {
+  display: none;
+}
+
+.outline-item-para {
+  color: #9aa0a6;
+}
+
+.outline-item-para:hover {
+  color: #fff;
+}
+
 /* ===== 搜索面板 ===== */
 .search-bar {
   padding: 8px;

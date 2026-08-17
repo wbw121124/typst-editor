@@ -14,3 +14,6 @@ packages:
 
 server:
   port: 3000               # 开发服务器端口（npm run dev 时生效）
+
+outline:
+  paragraphPreviewLength: 10   # 大纲段落条目显示的预览字符数

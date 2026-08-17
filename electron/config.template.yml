@@ -11,3 +11,6 @@ cache:
 
 server:
   port: 3000
+
+outline:
+  paragraphPreviewLength: 10

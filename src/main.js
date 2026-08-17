@@ -54,7 +54,7 @@ import { setupFileTree, loadFileTree } from './file-tree.js';
 import { setupShortcuts } from './shortcuts.js';
 import { initEntry, getEntryFile } from './entry.js';
 import { setupPdfNavigation, scheduleCursorJump } from './navigation.js';
-import { registerDocumentSymbolProvider, updateOutlinePanel } from './outline.js';
+import { registerDocumentSymbolProvider, updateOutlinePanel, configureOutline } from './outline.js';
 import { registerDefinitionProvider } from './definition.js';
 import { setupSearchPanel, focusSearch } from './search.js';
 import { setupTemplateUI } from './templates.js';
@@ -560,6 +560,7 @@ async function main() {
   let defaultFile = 'main.typ';
   try {
     const cfg = await (await fetch('/api/config')).json();
+    configureOutline(cfg);
     if (typeof cfg.defaultFile === 'string' && cfg.defaultFile) {
       defaultFile = cfg.defaultFile.replace(/^\/+/, '');
     }

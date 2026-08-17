@@ -90,7 +90,15 @@ export function createApp() {
   app.use(express.json({ limit: '10mb' }));
 
   app.get('/api/config', (req, res) => {
-    res.json({ defaultFile: DEFAULT_FILE });
+    res.json({
+      defaultFile: DEFAULT_FILE,
+      outline: {
+        paragraphPreviewLength:
+          typeof config.outline?.paragraphPreviewLength === 'number'
+            ? config.outline.paragraphPreviewLength
+            : 10,
+      },
+    });
   });
 
 function resolveWorkspacePath(filePath) {
